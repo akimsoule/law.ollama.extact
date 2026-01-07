@@ -1,0 +1,14 @@
+RÉPUBLIQUE DU [BENIN/DAHOMEY]
+Fraternité-Justice-Travail
+
+#LOI N° 2025 - 0 8 DU 2 4 MARS 2025
+LOI N° [TO_FILL_LAW_NUMBER]
+
+#portant modification de la loi n° 2022-06 du 27 juin
+[TO_FILL_OBJECT]
+
+#L'Assemblée nationale a délibéré et adopté en sa séance du 12 mars 2025
+L'Assemblée nationale [TO_FILL_ASSEMBLY]
+
+#Le Président de la République promulgue l a loi dont la teneur suit
+[TO_FILL_PRESIDENT] promulgue la loi dont la teneur suit
