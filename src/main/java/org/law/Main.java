@@ -3,7 +3,10 @@ package org.law;
 import org.json.JSONObject;
 import org.law.model.LawSection;
 import org.law.model.Stat;
-import org.law.service.main.*;
+import org.law.service.extract.*;
+import org.law.service.process.*;
+import org.law.service.embed.*;
+import org.law.service.ingest.Neo4jIngestService;
 
 import java.io.File;
 import java.io.IOException;
@@ -14,25 +17,33 @@ import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 public class Main {
 
     public static void main(String[] args) {
-        Path loiDir = Path.of("src/main/resources/loi");
+        Path loiDir = Path.of("src/main/resources/data/loi");
         Path errorsFile = Path.of("errors.log");
 
-        try (PrintWriter errorWriter = new PrintWriter(Files.newBufferedWriter(errorsFile));
-                Stream<Path> pdfFiles = Files.list(loiDir)
-                        .filter(p -> p.toString().endsWith(".pdf"))) {
+        String pdf = "2025-15";
 
-            pdfFiles.forEach(pdfPath -> {
-                File pdfFile = pdfPath.toFile();
+        try (PrintWriter errorWriter = new PrintWriter(Files.newBufferedWriter(errorsFile));
+             Stream<Path> pdfFiles = Files.list(loiDir)
+                     .filter(p -> p.toString().endsWith(pdf + ".pdf"))) {
+
+            Set<Path> paths = pdfFiles.collect(Collectors.toSet());
+
+            for (Path path : paths) {
+                File pdfFile = path.toFile();
                 String pdfName = pdfFile.getName();
-                String year = pdfName.split("[-|.]")[1];
+                String[] parts = pdfName.split("[-|.]");
+                String year = parts[1];
                 int yearInt = Integer.parseInt(year);
-                if (yearInt < 1970) {
-                    return;
+                String type = parts[0];
+                if (yearInt < 2025) {
+                    continue;
                 }
                 errorWriter.println("Traitement de : " + pdfName);
                 errorWriter.flush();
@@ -58,6 +69,7 @@ public class Main {
                     long startExtractLaw = System.currentTimeMillis();
                     LawSection lawSection = extractorService.extractLawSection();
                     lawSection.setYear(year);
+                    lawSection.setType(type);
                     long endExtractLaw = System.currentTimeMillis();
                     System.out.println(
                             "Temps pour extraction des sections : " + (endExtractLaw - startExtractLaw) + " ms");
@@ -70,17 +82,43 @@ public class Main {
                     long endJson = System.currentTimeMillis();
                     System.out.println("Temps pour construction du JSON : " + (endJson - startJson) + " ms");
 
-                    // Exporter le JSON dans le répertoire src/main/resources/article
+                    // Exporter le JSON dans le répertoire src/main/resources/data/article
                     try {
-                        String jsonName = pdfName.replace(".pdf", ".json");
-                        Path articleDir = Path.of("src/main/resources/article");
+                        String jsonName = lawSection.getBaseName() + ".json";
+                        Path articleDir = Path.of("src/main/resources/data/article");
                         Files.createDirectories(articleDir);
                         Path jsonFile = articleDir.resolve(jsonName);
                         Files.writeString(jsonFile, jsonOutput);
                         System.out.println("JSON exporté dans : " + jsonFile.toAbsolutePath());
+
+                        // Ingestion idempotente du fichier JSON généré dans Neo4j
+                        Neo4jIngestService ingestService = new Neo4jIngestService();
+                        long startIngest = System.currentTimeMillis();
+                        try {
+                            ingestService.connect();
+                            ingestService.createConstraintsAndIndexes();
+                            ingestService.ingestArticleFile(jsonFile);
+                            ingestService.printStats();
+                            long endIngest = System.currentTimeMillis();
+                            System.out.println("Temps pour ingestion Neo4j : " + (endIngest - startIngest) + " ms");
+                            errorWriter.println("Ingestion Neo4j réussie pour " + pdfName);
+                        } catch (IOException e) {
+                            errorWriter.println(
+                                    "Erreur lors de l'ingestion Neo4j pour " + pdfName + " : " + e.getMessage());
+                            e.printStackTrace(errorWriter);
+                        } finally {
+                            ingestService.disconnect();
+                        }
                     } catch (IOException e) {
                         errorWriter.println("Erreur lors de l'export du JSON pour " + pdfName + " : " + e.getMessage());
                     }
+
+                    // Vectorisation des json contenus dans article/
+                    VectorService vectorService = new VectorService();
+                    long startVector = System.currentTimeMillis();
+                    vectorService.vectorizeAllArticles();
+                    long endVector = System.currentTimeMillis();
+                    System.out.println("Temps pour vectorisation : " + (endVector - startVector) + " ms");
 
                     // Validation QA
                     QAService qaService = new QAService();
@@ -103,7 +141,7 @@ public class Main {
                 }
                 errorWriter.println("---");
                 errorWriter.flush();
-            });
+            }
 
         } catch (IOException e) {
             System.err.println("Erreur lors de l'accès au répertoire ou au fichier d'erreurs : " + e.getMessage());

@@ -6,24 +6,24 @@ RÉPUBLIQUE DU DAHOMEY
 Fraternité Justice Travail
 Fraternité-Justice-Travail
 PRÉSIDENCE DE LA RÉPUBLIQUE
-LOI N° \d+-\d+
-DÉCRET N° \d+-\d+
-ORDONNANCE N° \d+-\d+
-DÉCRET PORTANT \w+
+LOI N°
+DÉCRET N°
+ORDONNANCE N°
+DÉCRET PORTANT
 VU LA CONSTITUTION
-VU LA LOI N° \d+
-VU LE DÉCRET N° \d+
-VU L'ORDONNANCE N° \d+
+VU LA LOI N°
+VU LE DÉCRET N°
+VU L'ORDONNANCE N°
 LE CONSEIL DES MINISTRES ENTENDU
 LE PRÉSIDENT DE LA RÉPUBLIQUE DÉCRÈTE
-Article \d+
+Article
 Article premier
 Article unique
-ALINÉA \d+
-SECTION \d+
-CHAPITRE \d+
-TITRE \d+
-LIVRE \d+
+ALINÉA
+SECTION
+CHAPITRE
+TITRE
+LIVRE
 Code civil
 Code pénal
 Code de procédure civile
@@ -35,9 +35,9 @@ EST ET DEMEURE ABROGÉ
 NONOBSTANT TOUTES DISPOSITIONS CONTRAIRES
 Fait à Cotonou
 Fait à Porto-Novo
-Fait à Cotonou le \d+
-Fait à Porto-Novo le \d+
-Fait à C0T0N0U le \d+
+Fait à Cotonou le
+Fait à Porto-Novo le
+Fait à Cotonou le
 Le présent décret sera publié
 Sera exécuté comme Loi de l'État
 Le Président de la République

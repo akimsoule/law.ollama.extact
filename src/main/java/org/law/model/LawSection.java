@@ -21,6 +21,12 @@ public class LawSection {
     private String year = "";
 
     @Builder.Default
+    private String type = "";
+
+    @Builder.Default
+    private String baseName = "";
+
+    @Builder.Default
     private JSONObject jsonObject = new JSONObject();
 
     public String getFullText() {

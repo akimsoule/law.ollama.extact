@@ -1,5 +1,10 @@
 package org.law.utils;
 
+import java.util.Arrays;
+import java.util.HashSet;
+import java.util.Set;
+import java.util.stream.Collectors;
+
 public interface UtilsString {
 
     default int levenshteinDistance(String a, String b) {
@@ -21,6 +26,22 @@ public interface UtilsString {
         }
 
         return dp[a.length()][b.length()];
+    }
+
+    default double calculatePartialJaccard(String input, String pattern) {
+        Set<String> inputTokens = tokenize(input);
+        Set<String> patternTokens = tokenize(pattern);
+
+        long matches = patternTokens.stream().filter(inputTokens::contains).count();
+        return (double) matches / patternTokens.size(); // Ratio basé sur le pattern uniquement
+    }
+
+    private Set<String> tokenize(String text) {
+        if (text == null) return new HashSet<>();
+        // On met en minuscule et on garde les mots d'au moins 2 caractères
+        return Arrays.stream(text.toLowerCase().split("[\\s,.:;!\"'()-]+"))
+                .filter(word -> word.length() > 1)
+                .collect(Collectors.toSet());
     }
 
 }

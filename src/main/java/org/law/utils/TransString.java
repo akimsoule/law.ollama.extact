@@ -2,71 +2,14 @@ package org.law.utils;
 
 import org.law.model.LawSection;
 
-import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.*;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
-import static org.law.service.section.Constant.DELIMITERS_ALLOWED;
-import static org.law.service.section.Constant.MONTH_ALLOWED;
+import static org.law.service.parse.Constant.DELIMITERS_ALLOWED;
+import static org.law.service.parse.Constant.MONTH_ALLOWED;
 
-public interface TransString extends UtilsString {
-
-    class CorrectionHolder {
-        static final Map<String, String> corrections = new LinkedHashMap<>();
-
-        private CorrectionHolder() {
-            // Prevent instantiation
-        }
-
-        static {
-            loadCorrections();
-        }
-
-        private static void loadCorrections() {
-            Path csvPath = Path.of("src/main/resources/correct.csv");
-            try (var lines = Files.lines(csvPath)) {
-                lines.forEach(line -> {
-                    String[] parts = line.split(",", 2);
-                    if (parts.length == 2) {
-                        corrections.put(parts[0], parts[1].trim());
-                    }
-                });
-            } catch (IOException e) {
-                System.err.println("Erreur lors du chargement de correct.csv : " + e.getMessage());
-            }
-        }
-    }
-
-    default String applyCorrections(String line) {
-        Map<String, String> corrections = CorrectionHolder.corrections;
-        for (Map.Entry<String, String> entry : corrections.entrySet()) {
-            line = line.replace(entry.getKey(), entry.getValue());
-        }
-        return line;
-    }
-
-    default String correctionLine(String line) {
-        return applyCorrections(line);
-    }
-
-    default List<String> getCleanTokens(String input) {
-        // 1. On remplace les retours à la ligne par des espaces
-        // 2. On split par espace pour avoir chaque "mot"
-        String[] rawTokens = input.split("\\s+");
-        List<String> cleanTokens = new LinkedList<>();
-
-        for (String token : rawTokens) {
-            // On ignore les tokens de 1 ou 2 caractères (le bruit : z, X, PR, ', à)
-            // Sauf si c'est un chiffre (ex: "N° 1") ou un mot important comme "du"
-            if (token.length() >= 2 || token.matches("\\d+")) {
-                cleanTokens.add(token);
-            }
-        }
-        return cleanTokens;
-    }
+public interface TransString extends Corrector {
 
     default String toSingleLine(String text) {
         if (text == null || text.isBlank()) {
@@ -95,52 +38,6 @@ public interface TransString extends UtilsString {
                 // 6. Nettoyage final des espaces multiples
                 .replaceAll(" {2,}", " ")
                 .trim();
-    }
-
-    default String cleanupArticleNumber(String text) {
-        if (text == null || text.isBlank()) {
-            return "";
-        }
-
-        text = text.replace("'", " ");
-
-        String[] parts = text.split(" ");
-
-        if (parts.length < 2) {
-            return "";
-        }
-
-        text = parts[parts.length - 1];
-
-        return text
-                .replace(" ", "")
-                .replace(".", "")
-                .replace("-", "")
-                .replace("'", "")
-                .replace("|", "1")
-                .replace("t", "1")
-                .replace("I", "1")
-                .replace("l", "1")
-                .replace("err", "er")
-                .replace("ë", "er");
-    }
-
-    default String cleanUpTitle(String text) {
-        if (text == null || text.isBlank()) {
-            return "";
-        }
-
-        String[] lines = text.split("\n");
-        StringBuilder result = new StringBuilder();
-
-        for (String line : lines) {
-            String trimmed = line.trim();
-            if (trimmed.isEmpty() || !trimmed.matches("[A-Z0-9\\s]+")) {
-                result.append(line).append("\n");
-            }
-        }
-
-        return result.toString().trim();
     }
 
     default String normalizeDelimitersOnPrefix(String input, int n) {

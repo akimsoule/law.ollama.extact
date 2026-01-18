@@ -3,7 +3,7 @@ package org.law.utils;
 import java.util.Arrays;
 import java.util.Optional;
 
-import static org.law.service.section.Constant.DELIMITERS_ALLOWED;
+import static org.law.service.parse.Constant.DELIMITERS_ALLOWED;
 
 public interface BoolString extends UtilsString {
 

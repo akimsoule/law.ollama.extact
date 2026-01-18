@@ -1,6 +1,6 @@
 package org.law.utils;
 
-import org.law.service.section.Constant;
+import org.law.service.parse.Constant;
 
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
@@ -77,13 +77,12 @@ public interface ExtractString {
 
         /*
          * - Capture : (\d+[a-z0-9]*|premier|un)
-         *   - \d+[a-z0-9]* : 1, 3bis, 25w4
-         *   - premier|un : mots-clés spécifiques
+         * - \d+[a-z0-9]* : 1, 3bis, 25w4
+         * - premier|un : mots-clés spécifiques
          * - Lookahead : stop avant espace, ponctuation ou délimiteur
          */
         Pattern pattern = Pattern.compile(
-                "(?i).*?(\\d+[a-z0-9]*|premier|un)(?=\\s|[.:,-]|(?:" + delimitersRegex + ")|$)"
-        );
+                "(?i).*?(\\d+[a-z0-9-]*|premier|un)(?=\\s|[.:,-]|(?:" + delimitersRegex + ")|$)");
 
         Matcher matcher = pattern.matcher(prefix);
 
@@ -98,10 +97,6 @@ public interface ExtractString {
 
         return Optional.empty();
     }
-
-
-
-
 
     default Optional<String> getNumberInStart(String line, int n) {
         if (line == null || line.isEmpty() || n <= 0) {

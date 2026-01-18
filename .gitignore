@@ -41,7 +41,9 @@ build/
 article/
 loi/
 ocr/
+vector/
 errors.*
 output.*
 *debug.txt
 
+config.properties
