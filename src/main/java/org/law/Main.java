@@ -1,9 +1,14 @@
 package org.law;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.jetbrains.annotations.NotNull;
 import org.json.JSONObject;
+import org.law.model.LawNode;
 import org.law.model.LawSection;
 import org.law.model.Stat;
 import org.law.service.extract.*;
+import org.law.service.parse.HeaderParser;
+import org.law.service.parse.LawNodeParser;
 import org.law.service.process.*;
 import org.law.service.embed.*;
 import org.law.service.ingest.Neo4jIngestService;
@@ -15,7 +20,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
-import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -27,7 +31,7 @@ public class Main {
         Path loiDir = Path.of("src/main/resources/data/loi");
         Path errorsFile = Path.of("errors.log");
 
-        String pdf = "2025-15";
+        String pdf = "";
 
         try (PrintWriter errorWriter = new PrintWriter(Files.newBufferedWriter(errorsFile));
              Stream<Path> pdfFiles = Files.list(loiDir)
@@ -45,6 +49,7 @@ public class Main {
                 if (yearInt < 2025) {
                     continue;
                 }
+                String baseName = parts[1] + "-" + parts[2];
                 errorWriter.println("Traitement de : " + pdfName);
                 errorWriter.flush();
 
@@ -70,48 +75,16 @@ public class Main {
                     LawSection lawSection = extractorService.extractLawSection();
                     lawSection.setYear(year);
                     lawSection.setType(type);
+                    lawSection.setBaseName(baseName);
                     long endExtractLaw = System.currentTimeMillis();
                     System.out.println(
                             "Temps pour extraction des sections : " + (endExtractLaw - startExtractLaw) + " ms");
 
                     // Construire le JSON
-                    JsonService jsonService = new JsonService();
-                    long startJson = System.currentTimeMillis();
-                    JSONObject jsonObject = jsonService.buildJson(lawSection);
-                    String jsonOutput = jsonObject.toString(4);
-                    long endJson = System.currentTimeMillis();
-                    System.out.println("Temps pour construction du JSON : " + (endJson - startJson) + " ms");
+//                    JSONObject jsonObject = buildJSONObject(lawSection, errorWriter, pdfName);
 
-                    // Exporter le JSON dans le répertoire src/main/resources/data/article
-                    try {
-                        String jsonName = lawSection.getBaseName() + ".json";
-                        Path articleDir = Path.of("src/main/resources/data/article");
-                        Files.createDirectories(articleDir);
-                        Path jsonFile = articleDir.resolve(jsonName);
-                        Files.writeString(jsonFile, jsonOutput);
-                        System.out.println("JSON exporté dans : " + jsonFile.toAbsolutePath());
-
-                        // Ingestion idempotente du fichier JSON généré dans Neo4j
-                        Neo4jIngestService ingestService = new Neo4jIngestService();
-                        long startIngest = System.currentTimeMillis();
-                        try {
-                            ingestService.connect();
-                            ingestService.createConstraintsAndIndexes();
-                            ingestService.ingestArticleFile(jsonFile);
-                            ingestService.printStats();
-                            long endIngest = System.currentTimeMillis();
-                            System.out.println("Temps pour ingestion Neo4j : " + (endIngest - startIngest) + " ms");
-                            errorWriter.println("Ingestion Neo4j réussie pour " + pdfName);
-                        } catch (IOException e) {
-                            errorWriter.println(
-                                    "Erreur lors de l'ingestion Neo4j pour " + pdfName + " : " + e.getMessage());
-                            e.printStackTrace(errorWriter);
-                        } finally {
-                            ingestService.disconnect();
-                        }
-                    } catch (IOException e) {
-                        errorWriter.println("Erreur lors de l'export du JSON pour " + pdfName + " : " + e.getMessage());
-                    }
+                    // Build Node
+                    LawNode root = buildNodeTree(lawSection, errorWriter, pdfName);
 
                     // Vectorisation des json contenus dans article/
                     VectorService vectorService = new VectorService();
@@ -121,14 +94,14 @@ public class Main {
                     System.out.println("Temps pour vectorisation : " + (endVector - startVector) + " ms");
 
                     // Validation QA
-                    QAService qaService = new QAService();
-                    List<String> qaErrors = qaService.validateJson(jsonObject);
-                    if (!qaErrors.isEmpty()) {
-                        errorWriter.println("Erreurs QA pour " + pdfName + " :");
-                        for (String error : qaErrors) {
-                            errorWriter.println("- " + error);
-                        }
-                    }
+//                    QAService qaService = new QAService();
+//                    List<String> qaErrors = qaService.validateJson(jsonObject);
+//                    if (!qaErrors.isEmpty()) {
+//                        errorWriter.println("Erreurs QA pour " + pdfName + " :");
+//                        for (String error : qaErrors) {
+//                            errorWriter.println("- " + error);
+//                        }
+//                    }
 
                     long endTime = System.currentTimeMillis();
                     System.out.println(
@@ -156,6 +129,88 @@ public class Main {
         } catch (IOException e) {
             System.err.println("Erreur lors de l'écriture des statistiques : " + e.getMessage());
         }
+    }
+
+    @NotNull
+    private static JSONObject buildJSONObject(LawSection lawSection, PrintWriter errorWriter, String pdfName) {
+        JsonService jsonService = new JsonService();
+        long startJson = System.currentTimeMillis();
+        JSONObject jsonObject = jsonService.buildJson(lawSection);
+        String jsonOutput = jsonObject.toString(4);
+        long endJson = System.currentTimeMillis();
+        System.out.println("Temps pour construction du JSON : " + (endJson - startJson) + " ms");
+
+        // Exporter le JSON dans le répertoire src/main/resources/data/article
+        try {
+            String jsonName = lawSection.getBaseName() + ".json";
+            Path articleDir = Path.of("src/main/resources/data/article");
+            Files.createDirectories(articleDir);
+            Path jsonFile = articleDir.resolve(jsonName);
+            Files.writeString(jsonFile, jsonOutput);
+            System.out.println("JSON exporté dans : " + jsonFile.toAbsolutePath());
+
+            // Ingestion idempotente du fichier JSON généré dans Neo4j
+            Neo4jIngestService ingestService = new Neo4jIngestService();
+            long startIngest = System.currentTimeMillis();
+            try {
+                ingestService.connect();
+                ingestService.createConstraintsAndIndexes();
+                // Ingestion via les fichiers de nœuds au lieu des articles
+                // (ingestNodeFile gère maintenant la structure hiérarchique)
+                ingestService.printStats();
+                long endIngest = System.currentTimeMillis();
+                System.out.println("Temps pour ingestion Neo4j : " + (endIngest - startIngest) + " ms");
+                errorWriter.println("Ingestion Neo4j réussie pour " + pdfName);
+            } catch (Exception e) {
+                errorWriter.println(
+                        "Erreur lors de l'ingestion Neo4j pour " + pdfName + " : " + e.getMessage());
+                e.printStackTrace(errorWriter);
+            } finally {
+                ingestService.disconnect();
+            }
+        } catch (IOException e) {
+            errorWriter.println("Erreur lors de l'export du JSON pour " + pdfName + " : " + e.getMessage());
+        }
+        return jsonObject;
+    }
+
+    @NotNull
+    private static LawNode buildNodeTree(LawSection lawSection, PrintWriter errorWriter, String pdfName) {
+        LawNodeParser lawNodeParser = new LawNodeParser();
+        long startNode = System.currentTimeMillis();
+        LawNode root = lawNodeParser.parse(lawSection);
+        // Ajouter la source dans les métadonnées du nœud racine
+        HeaderParser headerParser = new HeaderParser();
+        String lawNumber = headerParser.extractLawNumber(lawSection.getHeader());
+        String source = new JsonService().generateAndValidateSource(lawSection, lawNumber);
+        if (source != null && !source.isEmpty()) {
+            root.addMetadata("source", source);
+        }
+        
+        long endNode = System.currentTimeMillis();
+        System.out.println("Temps pour construction du node : " + (endNode - startNode) + " ms");
+        System.out.println("Articles trouvés : " + root.countArticles());
+        errorWriter.println("Construction du node réussie pour " + pdfName + " - Articles: " + root.countArticles());
+        errorWriter.flush();
+        
+        // Exporter le node en JSON dans le répertoire src/main/resources/data/node
+        try {
+            String jsonName = lawSection.getBaseName() + ".json";
+            Path nodeDir = Path.of("src/main/resources/data/node");
+            Files.createDirectories(nodeDir);
+            Path jsonFile = nodeDir.resolve(jsonName);
+            
+            ObjectMapper objectMapper = new ObjectMapper();
+            objectMapper.writerWithDefaultPrettyPrinter().writeValue(jsonFile.toFile(), root);
+            
+            System.out.println("JSON exporté dans : " + jsonFile.toAbsolutePath());
+            errorWriter.println("Export JSON réussi pour " + pdfName);
+        } catch (IOException e) {
+            errorWriter.println("Erreur lors de l'export du JSON pour " + pdfName + " : " + e.getMessage());
+            e.printStackTrace(errorWriter);
+        }
+        
+        return root;
     }
 
 }

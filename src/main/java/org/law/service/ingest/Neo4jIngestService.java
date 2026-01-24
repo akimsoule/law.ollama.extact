@@ -20,9 +20,11 @@ import java.util.stream.Stream;
 
 /**
  * Service d'ingestion des données juridiques dans Neo4j.
- * - Lit les fichiers JSON des articles (data/article/*.json)
+ * - Lit les fichiers JSON de la structure hiérarchique des nœuds
+ * (data/node/*.json)
  * - Lit les embeddings (data/vector/*.json)
- * - Crée les nœuds Article et Loi avec les relations
+ * - Crée les nœuds Loi, Livre, Titre, Chapitre, Article avec les relations
+ * hiérarchiques
  * - Indexe les embeddings pour la recherche sémantique
  *
  * MODES D'INGESTION :
@@ -41,7 +43,7 @@ public class Neo4jIngestService {
     private final String neo4jUri;
     private final String neo4jUser;
     private final String neo4jPassword;
-    private final String articleDir;
+    private final String nodeDir;
     private final String vectorDir;
     private Driver driver;
     private Session session;
@@ -54,7 +56,7 @@ public class Neo4jIngestService {
         this.neo4jUri = Config.getProperty("neo4j.uri", "neo4j://localhost:7687");
         this.neo4jUser = Config.getProperty("neo4j.user", "neo4j");
         this.neo4jPassword = Config.getProperty("neo4j.password", "password");
-        this.articleDir = "src/main/resources/data/article";
+        this.nodeDir = "src/main/resources/data/node";
         this.vectorDir = "src/main/resources/data/vector";
     }
 
@@ -65,7 +67,7 @@ public class Neo4jIngestService {
         this.neo4jUri = uri;
         this.neo4jUser = user;
         this.neo4jPassword = password;
-        this.articleDir = "src/main/resources/data/article";
+        this.nodeDir = "src/main/resources/data/node";
         this.vectorDir = "src/main/resources/data/vector";
     }
 
@@ -93,41 +95,150 @@ public class Neo4jIngestService {
     }
 
     /**
-     * Ingère un seul article de manière idempotente (mise à jour si existe).
+     * Ingère un seul fichier de nœud de manière idempotente.
      * 
-     * @param articleFilePath chemin vers le fichier JSON de l'article
+     * @param nodeFilePath chemin vers le fichier JSON du nœud
      * @throws IOException en cas d'erreur de lecture
      */
-    public void ingestArticleFile(Path articleFilePath) throws IOException {
-        if (!Files.exists(articleFilePath)) {
-            System.err.println("❌ Fichier article non trouvé: " + articleFilePath.toAbsolutePath());
+    public void ingestNodeFile(Path nodeFilePath) throws IOException {
+        if (!Files.exists(nodeFilePath)) {
+            System.err.println("❌ Fichier nœud non trouvé: " + nodeFilePath.toAbsolutePath());
             return;
         }
 
-        String fileName = articleFilePath.getFileName().toString();
+        String fileName = nodeFilePath.getFileName().toString();
         String vectorFileName = fileName.replace(".json", "_vectors.json");
         Path vectorDirPath = Paths.get(vectorDir);
         Path vectorPath = vectorDirPath.resolve(vectorFileName);
 
         if (!Files.exists(vectorPath)) {
             System.out.println("⚠️  Fichier vecteur manquant: " + vectorFileName);
-            System.out.println("   Ingestion de l'article sans vecteurs...");
+            System.out.println("   Ingestion du nœud sans vecteurs...");
         }
 
         try {
-            String lawData = Files.readString(articleFilePath);
+            String nodeData = Files.readString(nodeFilePath);
             String vectorData = Files.exists(vectorPath) ? Files.readString(vectorPath) : "{}";
 
-            JSONObject lawJson = new JSONObject(lawData);
-            JSONObject metadata = lawJson.getJSONObject("metadata");
-            String lawNumber = metadata.getString("lawNumber");
+            JSONObject rootNode = new JSONObject(nodeData);
+            JSONObject vectorJson = new JSONObject(vectorData);
 
-            System.out.println("📄 Ingestion idempotente de: " + lawNumber);
-            ingestLaw(lawData, vectorData);
-            System.out.println("✅ Ingestion idempotente réussie: " + lawNumber);
+            System.out.println("📄 Ingestion de la structure hiérarchique: " + fileName);
+            ingestNodeStructure(rootNode, vectorJson);
+            System.out.println("✅ Ingestion réussie: " + fileName);
         } catch (Exception e) {
-            System.err.println("❌ Erreur lors de l'ingestion idempotente de " + fileName + ": " + e.getMessage());
+            System.err.println("❌ Erreur lors de l'ingestion de " + fileName + ": " + e.getMessage());
             throw new IOException(e);
+        }
+    }
+
+    /**
+     * Ingère la structure hiérarchique complète des nœuds.
+     */
+    private void ingestNodeStructure(JSONObject rootNode, JSONObject vectorJson) {
+        JSONArray vectorNodes = vectorJson.optJSONArray("nodes");
+        Map<String, double[]> vectorMap = new HashMap<>();
+
+        // Construire une map des vecteurs par (type, number, index)
+        if (vectorNodes != null) {
+            for (int i = 0; i < vectorNodes.length(); i++) {
+                JSONObject vectorNode = vectorNodes.getJSONObject(i);
+                String type = vectorNode.optString("type", "");
+                String number = vectorNode.optString("number", "");
+                String index = vectorNode.optString("index", "");
+                JSONArray vectorArray = vectorNode.optJSONArray("vector");
+
+                if (vectorArray != null) {
+                    double[] vector = new double[vectorArray.length()];
+                    for (int j = 0; j < vectorArray.length(); j++) {
+                        vector[j] = vectorArray.getDouble(j);
+                    }
+                    String key = type + "_" + number + "_" + index;
+                    vectorMap.put(key, vector);
+                }
+            }
+        }
+
+        // Créer le nœud Loi et traverser la hiérarchie
+        ingestNodeRecursive(rootNode, null, vectorMap);
+    }
+
+    /**
+     * Traverse récursivement la structure et crée les nœuds avec relations.
+     */
+    private void ingestNodeRecursive(JSONObject node, String parentId, Map<String, double[]> vectorMap) {
+        String type = node.optString("type", "");
+        JSONObject metadata = node.optJSONObject("metadata");
+
+        if (metadata == null) {
+            return;
+        }
+
+        String nodeNumber = metadata.optString("number", "");
+        String nodeIndex = metadata.optString("index", "");
+        String nodeText = metadata.optString("text", "");
+
+        if (type.isEmpty() || nodeText.isEmpty()) {
+            // Si pas de contenu, parcourir les enfants
+            JSONArray children = node.optJSONArray("children");
+            if (children != null) {
+                for (int i = 0; i < children.length(); i++) {
+                    JSONObject child = children.getJSONObject(i);
+                    ingestNodeRecursive(child, parentId, vectorMap);
+                }
+            }
+            return;
+        }
+
+        // Créer l'ID du nœud
+        String nodeId = type + "_" + nodeNumber + "_" + nodeIndex;
+
+        // Récupérer le vecteur
+        String vectorKey = type + "_" + nodeNumber + "_" + nodeIndex;
+        double[] embedding = vectorMap.get(vectorKey);
+
+        // Créer le nœud Neo4j
+        Map<String, Object> params = new HashMap<>();
+        params.put("nodeId", nodeId);
+        params.put("type", type);
+        params.put("number", nodeNumber);
+        params.put("index", nodeIndex);
+        params.put("text", nodeText);
+        if (embedding != null) {
+            List<Double> embeddingList = new ArrayList<>();
+            for (double v : embedding) {
+                embeddingList.add(v);
+            }
+            params.put("embedding", embeddingList);
+        }
+
+        String query = String.format("""
+                MERGE (n:%s {id: $nodeId})
+                SET n.number = $number,
+                    n.index = $index,
+                    n.text = $text
+                %s
+                RETURN n
+                """, type, embedding != null ? ", n.embedding = $embedding" : "");
+
+        session.run(query, params);
+
+        // Créer la relation avec le parent
+        if (parentId != null) {
+            session.run(String.format("""
+                    MATCH (parent {id: $parentId})
+                    MATCH (child {id: $childId})
+                    MERGE (child)-[:ENFANT_DE]->(parent)
+                    """), Map.of("parentId", parentId, "childId", nodeId));
+        }
+
+        // Traiter les enfants
+        JSONArray children = node.optJSONArray("children");
+        if (children != null) {
+            for (int i = 0; i < children.length(); i++) {
+                JSONObject child = children.getJSONObject(i);
+                ingestNodeRecursive(child, nodeId, vectorMap);
+            }
         }
     }
 
@@ -160,44 +271,45 @@ public class Neo4jIngestService {
     public void createConstraintsAndIndexes() {
         System.out.println("\n🔍 Création des contraintes et index Neo4j...");
 
-        try {
-            // Contraintes d'unicité sur les IDs pour éviter les doublons
-            try {
-                session.run("CREATE CONSTRAINT article_id_unique IF NOT EXISTS FOR (a:Article) REQUIRE a.id IS UNIQUE");
-                System.out.println("✅ Contrainte d'unicité créée pour Article.id");
-            } catch (Neo4jException e) {
-                System.out.println("⚠️  Contrainte Article.id déjà existante ou non supportée");
+        try (var tx = session.beginTransaction()) {
+            // Contraintes d'unicité sur les IDs
+            String[] nodeTypes = { "Loi", "Livre", "Titre", "Chapitre", "Article" };
+            for (String nodeType : nodeTypes) {
+                tx.run(String.format(
+                        "CREATE CONSTRAINT %s_id_unique IF NOT EXISTS FOR (n:%s) REQUIRE n.id IS UNIQUE",
+                        nodeType.toLowerCase(), nodeType));
             }
 
-            try {
-                session.run("CREATE CONSTRAINT loi_id_unique IF NOT EXISTS FOR (l:Loi) REQUIRE l.id IS UNIQUE");
-                System.out.println("✅ Contrainte d'unicité créée pour Loi.id");
-            } catch (Neo4jException e) {
-                System.out.println("⚠️  Contrainte Loi.id déjà existante ou non supportée");
+            // Détecter dimension des embeddings
+            var dimRes = tx.run(
+                    "MATCH (n) WHERE n.embedding IS NOT NULL RETURN size(n.embedding) AS dim LIMIT 1");
+            if (!dimRes.hasNext()) {
+                System.out.println("⚠️  Aucun embedding trouvé; index vectoriel non créé.");
+            } else {
+                int dim = dimRes.next().get("dim").asInt();
+                System.out.println("➡️  Dimension embeddings détectée: " + dim);
+
+                // Supprimer index existant cible (si présent)
+                tx.run("DROP INDEX node_embeddings IF EXISTS");
+
+                // Créer l’index vectoriel global
+                tx.run(String.format("""
+                            CREATE VECTOR INDEX node_embeddings
+                            FOR (n) ON (n.embedding)
+                            OPTIONS {
+                              indexConfig: {
+                                `vector.similarity_function`: 'cosine',
+                                `vector.dimensions`: %d
+                              }
+                            }
+                        """, dim));
+                System.out.println("✅ Index vectoriel 'node_embeddings' créé (" + dim + " dims)");
             }
 
-            // Index sur les IDs (créés automatiquement par les contraintes dans Neo4j 4.x+)
-            System.out.println("✅ Index créés automatiquement via contraintes");
-
-            // Index vectoriel pour les embeddings (Neo4j 5.x+)
-            // all-MiniLM-L6-v2-q génère des vecteurs de dimension 384
-            try {
-                session.run("""
-                        CREATE VECTOR INDEX article_embeddings IF NOT EXISTS
-                        FOR (a:Article) ON (a.embedding)
-                        OPTIONS {
-                          indexConfig: {
-                            `vector.similarity_function`: 'cosine',
-                            `vector.dimensions`: 384
-                          }
-                        }
-                        """);
-                System.out.println("✅ Index vectoriel créé (all-MiniLM-L6-v2-q, dim 384)");
-            } catch (Neo4jException e) {
-                System.out.println("⚠️  Index vectoriel non supporté (Neo4j 5.x+ requis)");
-            }
-        } catch (Neo4jException e) {
-            System.err.println("❌ Erreur lors de la création des contraintes/index: " + e.getMessage());
+            tx.commit();
+            System.out.println("✅ Contraintes et index configurés");
+        } catch (org.neo4j.driver.exceptions.Neo4jException e) {
+            System.err.println("❌ Erreur lors de la configuration: " + e.getMessage());
         }
     }
 
@@ -376,25 +488,25 @@ public class Neo4jIngestService {
     }
 
     private void loadData() throws IOException {
-        Path articleDirPath = Paths.get(articleDir);
+        Path nodeDirPath = Paths.get(nodeDir);
         Path vectorDirPath = Paths.get(vectorDir);
 
-        if (!Files.exists(articleDirPath)) {
-            System.err.println("❌ Dossier articles non trouvé: " + articleDirPath.toAbsolutePath());
+        if (!Files.exists(nodeDirPath)) {
+            System.err.println("❌ Dossier nœuds non trouvé: " + nodeDirPath.toAbsolutePath());
             return;
         }
 
-        try (Stream<Path> jsonFiles = Files.list(articleDirPath)
+        try (Stream<Path> jsonFiles = Files.list(nodeDirPath)
                 .filter(p -> p.toString().endsWith(".json"))) {
-            List<Path> articleFiles = jsonFiles.toList();
+            List<Path> nodeFiles = jsonFiles.toList();
 
-            System.out.println("\n📂 Trouvé " + articleFiles.size() + " fichier(s) de loi");
+            System.out.println("\n📂 Trouvé " + nodeFiles.size() + " fichier(s) de structure");
 
             int filesProcessed = 0;
             int filesDuplicated = 0;
 
-            for (Path articlePath : articleFiles) {
-                String fileName = articlePath.getFileName().toString();
+            for (Path nodePath : nodeFiles) {
+                String fileName = nodePath.getFileName().toString();
                 String vectorFileName = fileName.replace(".json", "_vectors.json");
                 Path vectorPath = vectorDirPath.resolve(vectorFileName);
 
@@ -403,34 +515,20 @@ public class Neo4jIngestService {
                     continue;
                 }
 
-                String lawData = Files.readString(articlePath);
+                String nodeData = Files.readString(nodePath);
                 String vectorData = Files.readString(vectorPath);
 
                 try {
-                    JSONObject lawJson = new JSONObject(lawData);
-                    JSONObject metadata = lawJson.getJSONObject("metadata");
-                    String lawNumber = metadata.getString("lawNumber");
-
-                    if (ingestedLaws.contains(lawNumber)) {
-                        filesDuplicated++;
-                        System.out.println("\n⏭️  Doublon détecté dans cette session: " + lawNumber);
-                        System.out.println("   (Fichiers variantes: loi-2025-2.json et loi-2025-02.json)");
-                        continue;
-                    }
-
-                    ingestLaw(lawData, vectorData);
+                    ingestNodeStructure(new JSONObject(nodeData), new JSONObject(vectorData));
                     filesProcessed++;
                 } catch (Exception e) {
-                    System.err.println("❌ Erreur lors de l'ingestion de " + fileName + ": " + e.getMessage());
+                    System.err.println("❌ Erreur lors de l'ingestion de " + fileName + ": ");
                     e.printStackTrace();
                 }
             }
 
             System.out.println("\n📊 Résumé de l'ingestion:");
             System.out.println("   Fichiers traités: " + filesProcessed);
-            if (filesDuplicated > 0) {
-                System.out.println("   Fichiers doublons ignorés: " + filesDuplicated);
-            }
         }
 
         System.out.println("\n🎉 Ingestion complétée!");

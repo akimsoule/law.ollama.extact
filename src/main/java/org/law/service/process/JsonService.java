@@ -168,7 +168,7 @@ public class JsonService {
      * Génère et valide l'URL source à partir du numéro de loi.
      * Format attendu : loi-XXXX-XX → https://sgg.gouv.bj/doc/loi-XXXX-XX/
      */
-    private String generateAndValidateSource(LawSection lawSection, String lawNumber) {
+    public String generateAndValidateSource(LawSection lawSection, String lawNumber) {
         if (lawNumber == null || lawNumber.isEmpty()) {
             System.out.println("Warning: lawNumber is empty, cannot generate source URL");
             return "";

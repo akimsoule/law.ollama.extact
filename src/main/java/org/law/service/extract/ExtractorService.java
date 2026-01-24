@@ -34,7 +34,7 @@ public class ExtractorService implements BoolString, ExtractString, TransString 
 
         String[] lines = fullContent.split("\n");
         for (String line : lines) {
-            if (headFound && stratLookLikeArticle(line)) {
+            if (headFound && (stratLookLikeArticle(line) || isTitle(line))) {
                 headFound = false;
                 bodyFound = true;
             }
@@ -55,17 +55,17 @@ public class ExtractorService implements BoolString, ExtractString, TransString 
         }
 
         long startCleanHeader = System.currentTimeMillis();
-        lawSection.setHeader(headerTrans.cleanUpHeader(lawSection.getHeader()));
+        lawSection.setHeader(headerTrans.cleanUpHeader(lawSection));
         long endCleanHeader = System.currentTimeMillis();
         System.out.println("Temps pour nettoyage du header : " + (endCleanHeader - startCleanHeader) + " ms");
 
         long startCleanBody = System.currentTimeMillis();
-        lawSection.setBody(bodyTrans.cleanUpBody(lawSection.getBody()));
+//        lawSection.setBody(bodyTrans.cleanUpBody(lawSection));
         long endCleanBody = System.currentTimeMillis();
         System.out.println("Temps pour nettoyage du body : " + (endCleanBody - startCleanBody) + " ms");
 
         long startCleanFooter = System.currentTimeMillis();
-        lawSection.setFooter(footerTrans.cleanUpFooter(lawSection.getFooter()));
+        lawSection.setFooter(footerTrans.cleanUpFooter(lawSection));
         long endCleanFooter = System.currentTimeMillis();
         System.out.println("Temps pour nettoyage du footer : " + (endCleanFooter - startCleanFooter) + " ms");
 

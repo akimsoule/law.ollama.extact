@@ -4,6 +4,7 @@ import lombok.Builder;
 import lombok.Data;
 import org.json.JSONObject;
 
+import java.util.LinkedList;
 import java.util.List;
 
 @Data
@@ -13,7 +14,13 @@ public class LawSection {
     @Builder.Default
     private String header = "";
     @Builder.Default
+    private HeaderObject headerObject = HeaderObject.builder().build();
+
+    @Builder.Default
     private String body = "";
+    @Builder.Default
+    private List<Article> articles = new LinkedList<>();
+
     @Builder.Default
     private String footer = "";
 

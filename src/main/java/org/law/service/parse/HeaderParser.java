@@ -1,5 +1,7 @@
 package org.law.service.parse;
 
+import lombok.Getter;
+import org.law.model.HeaderObject;
 import org.law.model.LawSection;
 import org.law.service.process.LangToolService;
 import org.law.utils.BoolString;
@@ -9,9 +11,11 @@ import org.law.utils.TransString;
 
 import static org.law.service.parse.Constant.*;
 
+@Getter
 public class HeaderParser implements BoolString, ExtractString, TransString, TemplateReader {
 
-    public String cleanUpHeader(String header) throws Exception {
+    public String cleanUpHeader(LawSection lawSection) throws Exception {
+        String header = lawSection.getHeader();
         if (header == null)
             return "";
 
@@ -79,6 +83,15 @@ public class HeaderParser implements BoolString, ExtractString, TransString, Tem
                 extractAfterFirstRegex(toSingleLine(lawDelibRaw.toString()), "nationale"));
         template = template.replace("[TO_FILL_PRESIDENT]",
                 extractBeforeFirstRegex(toSingleLine(lawPresRaw.toString()), "promulgue"));
+
+        lawSection.setHeaderObject(HeaderObject
+                .builder()
+                .republic(republicName)
+                .number(rawNumberStr)
+                .object(lawObjectRaw.toString())
+                .deliberation(lawDelibRaw.toString())
+                .president(lawPresRaw.toString())
+                .build());
 
         // Correction orthographique finale
         return LangToolService.getInstance().getCorrectedText(template);
@@ -152,7 +165,7 @@ public class HeaderParser implements BoolString, ExtractString, TransString, Tem
 
                 Le Président de la République promulgue la loi dont la teneur suit""";
 
-        String cleanupHeader = headerTrans.cleanUpHeader(input);
+        String cleanupHeader = headerTrans.cleanUpHeader(LawSection.builder().header(input).build());
         String lawNumber = headerTrans.extractLawNumber(cleanupHeader);
         String lawObjet = headerTrans.extractLawObject(cleanupHeader);
         String lawDate = headerTrans.extractLawDate(LawSection.builder().header(input).build());

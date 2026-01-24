@@ -11,14 +11,14 @@ import java.nio.file.Paths;
 import java.util.stream.Stream;
 
 /**
- * Service pour vectoriser les articles JSON et stocker les vecteurs.
+ * Service pour vectoriser les articles extraits de la structure JSON des nœuds.
  * Utilise le modèle local all-MiniLM-L6-v2-q (LangChain4J) pour générer les
  * embeddings.
  * Dimension: 384
  */
 public class VectorService {
 
-    private static final String ARTICLE_DIR = "src/main/resources/data/article";
+    private static final String NODE_DIR = "src/main/resources/data/node";
     private static final String VECTOR_DIR = "src/main/resources/data/vector";
 
     private final Embedder embedder;
@@ -76,23 +76,23 @@ public class VectorService {
     }
 
     /**
-     * Vectorise tous les fichiers JSON du répertoire article/ et stocke les
+     * Vectorise tous les fichiers JSON du répertoire node/ et stocke les
      * vecteurs.
      */
     public void vectorizeAllArticles() throws IOException {
-        Path articleDir = Paths.get(ARTICLE_DIR);
+        Path nodeDir = Paths.get(NODE_DIR);
         Path vectorDir = Paths.get(VECTOR_DIR);
 
         // Créer le répertoire vector s'il n'existe pas
         Files.createDirectories(vectorDir);
 
-        try (Stream<Path> jsonFiles = Files.list(articleDir)
+        try (Stream<Path> jsonFiles = Files.list(nodeDir)
                 .filter(p -> p.toString().endsWith(".json"))
                 .sorted()) {
             jsonFiles.forEachOrdered(jsonPath -> {
                 try {
                     System.out.println("Vectorisation de " + jsonPath.getFileName() + "...");
-                    vectorizeArticle(jsonPath, vectorDir);
+                    vectorizeNodeFile(jsonPath, vectorDir);
                     System.out.println("✓ Vectorisation réussie pour " + jsonPath.getFileName());
                 } catch (IOException e) {
                     System.err.println("✗ Erreur lors de la vectorisation de " + jsonPath + " : " + e.getMessage());
@@ -103,68 +103,72 @@ public class VectorService {
     }
 
     /**
-     * Vectorise un article JSON spécifique.
+     * Vectorise un fichier de nœud JSON spécifique.
+     * Traverse la structure hiérarchique et vectorise tous les nœuds trouvés.
      *
-     * @param jsonPath  chemin du fichier JSON
+     * @param nodePath  chemin du fichier JSON de nœud
      * @param vectorDir répertoire de destination des vecteurs
      */
-    private void vectorizeArticle(Path jsonPath, Path vectorDir) throws IOException {
-        String jsonContent = Files.readString(jsonPath);
-        JSONObject jsonObject = new JSONObject(jsonContent);
+    private void vectorizeNodeFile(Path nodePath, Path vectorDir) throws IOException {
+        String jsonContent = Files.readString(nodePath);
+        JSONObject rootNode = new JSONObject(jsonContent);
 
         // Créer un objet pour stocker les vecteurs
         JSONObject vectorObject = new JSONObject();
-        vectorObject.put("file", jsonPath.getFileName().toString());
+        vectorObject.put("file", nodePath.getFileName().toString());
         vectorObject.put("timestamp", System.currentTimeMillis());
 
-        JSONArray articlesArray = jsonObject.optJSONArray("articles");
-        if (articlesArray != null) {
-            JSONArray vectorizedArticles = new JSONArray();
+        JSONArray vectorizedNodes = new JSONArray();
 
-            for (int i = 0; i < articlesArray.length(); i++) {
-                JSONObject article = articlesArray.getJSONObject(i);
-                String articleContent = article.getString("content");
-                String articleIndex = article.getString("index");
+        // Parcourir la structure hiérarchique et extraire tous les nœuds
+        extractAndVectorizeNodes(rootNode, vectorizedNodes);
 
-                // Générer le vecteur pour cet article
-                double[] vector = embedder.embed(articleContent);
-
-                JSONObject vectoredArticle = new JSONObject();
-                vectoredArticle.put("index", articleIndex);
-                vectoredArticle.put("vector", new JSONArray(vector));
-
-                vectorizedArticles.put(vectoredArticle);
-            }
-
-            vectorObject.put("articles", vectorizedArticles);
-        }
-
-        // Récupérer et vectoriser les métadonnées
-        JSONObject metadata = jsonObject.optJSONObject("metadata");
-        if (metadata != null) {
-            JSONObject vectoredMetadata = new JSONObject();
-
-            String lawNumber = metadata.optString("lawNumber", "");
-            if (!lawNumber.isEmpty()) {
-                double[] vector = embedder.embed(lawNumber);
-                vectoredMetadata.put("lawNumber_vector", new JSONArray(vector));
-            }
-
-            String lawObject = metadata.optString("lawObject", "");
-            if (!lawObject.isEmpty()) {
-                double[] vector = embedder.embed(lawObject);
-                vectoredMetadata.put("lawObject_vector", new JSONArray(vector));
-            }
-
-            vectorObject.put("metadata_vectors", vectoredMetadata);
-        }
+        vectorObject.put("nodes", vectorizedNodes);
 
         // Sauvegarder les vecteurs
-        String vectorFileName = jsonPath.getFileName().toString().replace(".json", "_vectors.json");
+        String vectorFileName = nodePath.getFileName().toString().replace(".json", "_vectors.json");
         Path vectorPath = vectorDir.resolve(vectorFileName);
         Files.writeString(vectorPath, vectorObject.toString(4));
 
         System.out.println("Vecteurs sauvegardés dans : " + vectorPath.toAbsolutePath());
+    }
+
+    /**
+     * Traverse récursivement la structure du nœud et extrait tous les nœuds
+     * pour les vectoriser.
+     */
+    private void extractAndVectorizeNodes(JSONObject node, JSONArray vectorizedNodes) {
+        String type = node.optString("type", "");
+
+        // Vectoriser tous les nœuds qui ont du texte dans les métadonnées
+        JSONObject metadata = node.optJSONObject("metadata");
+        if (metadata != null) {
+            String nodeText = metadata.optString("text", "");
+            String nodeNumber = metadata.optString("number", "");
+            String nodeIndex = metadata.optString("index", "");
+
+            if (!nodeText.isEmpty()) {
+                // Générer le vecteur pour ce nœud
+                double[] vector = embedder.embed(nodeText);
+
+                JSONObject vectoredNode = new JSONObject();
+                vectoredNode.put("type", type);
+                vectoredNode.put("number", nodeNumber);
+                vectoredNode.put("index", nodeIndex);
+                vectoredNode.put("vector", new JSONArray(vector));
+
+                vectorizedNodes.put(vectoredNode);
+            }
+        }
+
+        // Parcourir les enfants
+        JSONArray children = node.optJSONArray("children");
+        if (children != null) {
+            for (int i = 0; i < children.length(); i++) {
+                JSONObject child = children.getJSONObject(i);
+                extractAndVectorizeNodes(child, vectorizedNodes);
+            }
+        }
     }
 
     /**

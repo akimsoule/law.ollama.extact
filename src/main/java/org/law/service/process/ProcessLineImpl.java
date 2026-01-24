@@ -45,9 +45,14 @@ public class ProcessLineImpl implements BoolString, ExtractString, TransString {
                 System.out.println("[INFO] Zone de signature détectée. Fin de l'analyse des articles.");
             }
 
-            if (inBody && isTitle(line)) {
+            if (isPage(line)) {
                 continue;
             }
+
+            // Keep titles (LIVRE, TITRE, CHAPITRE, SECTION) in the text for hierarchical parsing
+            // if (inBody && isTitle(line)) {
+            //     continue;
+            // }
 
             result.append(line).append("\n");
         }

@@ -47,7 +47,8 @@ public class FooterParser implements BoolString, ExtractString, TransString, Tem
         return faitLine.toString();
     }
 
-    public String cleanUpFooter(String footer) throws Exception {
+    public String cleanUpFooter(LawSection lawSection) throws Exception {
+        String footer = lawSection.getFooter();
         if (footer == null || footer.isBlank())
             return "";
 

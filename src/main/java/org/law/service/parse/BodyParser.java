@@ -1,5 +1,7 @@
 package org.law.service.parse;
 
+import org.law.model.Article;
+import org.law.model.LawSection;
 import org.law.service.process.LangToolService;
 import org.law.utils.BoolString;
 import org.law.utils.TemplateReader;
@@ -8,6 +10,7 @@ import org.law.utils.TransString;
 import java.io.IOException;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public class BodyParser implements BoolString, TransString, TemplateReader {
 
@@ -15,7 +18,8 @@ public class BodyParser implements BoolString, TransString, TemplateReader {
      * Nettoie et corrige le corps du texte.
      * Le body est supposé déjà synchronisé par preProcessOcrLines.
      */
-    public String cleanUpBody(String body) throws IOException {
+    public String cleanUpBody(LawSection lawSection) throws IOException {
+        String body = lawSection.getBody();
         if (body == null || body.isBlank())
             return "";
 
@@ -41,6 +45,10 @@ public class BodyParser implements BoolString, TransString, TemplateReader {
                     "Article " + (i + 1) + "/" + articles.size() + " corrigé en " + (endCorr - startCorr) + " ms");
             correctedArticles.add(articleText);
         }
+        AtomicInteger index = new AtomicInteger();
+        lawSection.setArticles(correctedArticles.stream()
+                .map((art) -> Article.builder()
+                        .index(index.incrementAndGet()).build()).toList());
 
         System.out.println("[INFO] Temps total de traitement : " + (System.currentTimeMillis() - startTime) + " ms");
 

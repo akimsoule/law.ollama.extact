@@ -19,6 +19,18 @@ public interface BoolString extends UtilsString {
         return true;
     }
 
+    default boolean isPage(String line) {
+        // regex === PAGE 2 ===
+        if (line == null || line.isBlank()) {
+            return false;
+        }
+        
+        String trimmed = line.trim();
+        
+        // Match pattern like: === PAGE 2 ===
+        return trimmed.matches("(?i)^=+\\s+PAGE\\s+\\d+\\s+=+$");
+    }
+
     default boolean startsWithIgnoreCase(String text, String prefix) {
         if (text == null || prefix == null) {
             return false;
