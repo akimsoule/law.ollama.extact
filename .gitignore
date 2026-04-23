@@ -42,6 +42,7 @@ article/
 loi/
 ocr/
 vector/
+node/
 errors.*
 output.*
 *debug.txt

@@ -64,17 +64,17 @@ public class Embedder {
 
         StringBuilder chunk = new StringBuilder();
         for (String sentence : sentences) {
-            if ((chunk.length() + sentence.length() + 1) > maxSize && chunk.length() > 0) {
+            if ((chunk.length() + sentence.length() + 1) > maxSize && !chunk.isEmpty()) {
                 chunks.add(chunk.toString().trim());
                 chunk = new StringBuilder();
             }
-            if (chunk.length() > 0) {
+            if (!chunk.isEmpty()) {
                 chunk.append(" ");
             }
             chunk.append(sentence);
         }
 
-        if (chunk.length() > 0) {
+        if (!chunk.isEmpty()) {
             chunks.add(chunk.toString().trim());
         }
 

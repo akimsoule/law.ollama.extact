@@ -27,11 +27,11 @@ public class Main {
         Path loiDir = Path.of("src/main/resources/data/loi");
         Path errorsFile = Path.of("errors.log");
 
-        String pdf = "2025-15";
+        String pdf = "";
 
         try (PrintWriter errorWriter = new PrintWriter(Files.newBufferedWriter(errorsFile));
-             Stream<Path> pdfFiles = Files.list(loiDir)
-                     .filter(p -> p.toString().endsWith(pdf + ".pdf"))) {
+                Stream<Path> pdfFiles = Files.list(loiDir)
+                        .filter(p -> p.toString().endsWith(pdf + ".pdf"))) {
 
             Set<Path> paths = pdfFiles.collect(Collectors.toSet());
 
@@ -90,25 +90,6 @@ public class Main {
                         Path jsonFile = articleDir.resolve(jsonName);
                         Files.writeString(jsonFile, jsonOutput);
                         System.out.println("JSON exporté dans : " + jsonFile.toAbsolutePath());
-
-                        // Ingestion idempotente du fichier JSON généré dans Neo4j
-                        Neo4jIngestService ingestService = new Neo4jIngestService();
-                        long startIngest = System.currentTimeMillis();
-                        try {
-                            ingestService.connect();
-                            ingestService.createConstraintsAndIndexes();
-                            ingestService.ingestArticleFile(jsonFile);
-                            ingestService.printStats();
-                            long endIngest = System.currentTimeMillis();
-                            System.out.println("Temps pour ingestion Neo4j : " + (endIngest - startIngest) + " ms");
-                            errorWriter.println("Ingestion Neo4j réussie pour " + pdfName);
-                        } catch (IOException e) {
-                            errorWriter.println(
-                                    "Erreur lors de l'ingestion Neo4j pour " + pdfName + " : " + e.getMessage());
-                            e.printStackTrace(errorWriter);
-                        } finally {
-                            ingestService.disconnect();
-                        }
                     } catch (IOException e) {
                         errorWriter.println("Erreur lors de l'export du JSON pour " + pdfName + " : " + e.getMessage());
                     }
