@@ -3,161 +3,282 @@ package org.law.service.extract;
 /**
  * Legal Document Restructuring Tool
  *
+ * Pipeline: Raw OCR (Tesseract) → LLM correction + structured extraction
+ *
  * Models:
- * - Vision: N/A (using OCR extraction directly)
- * - Text: Ollama local models (e.g., mistral, llama2)
+ * - Text: GitHub Copilot SDK (gpt-5-mini)
  *
  * Features:
- * - Page-based OCR correction
- * - Anti-hallucination prompts
+ * - OCR error correction via LLM (garbled characters, broken words, accents)
+ * - Anti-hallucination prompts with strict schema enforcement
  * - Forced JSON Schema validation
- * - Law-oriented extraction
- * - Local inference (no API calls)
+ * - Law-oriented extraction (articles, metadata, signatories)
+ * - Used as fallback when the regex-based pipeline produces empty results
  */
 
 import org.apache.pdfbox.Loader;
 import org.apache.pdfbox.pdmodel.PDDocument;
-import org.apache.pdfbox.rendering.PDFRenderer;
 import org.apache.pdfbox.io.RandomAccessReadBuffer;
-import org.law.service.chat.OllamaChatClient;
+import org.json.JSONArray;
+import org.json.JSONObject;
+import org.law.service.chat.CopilotChatClient;
 
 import java.io.*;
 import java.nio.file.*;
 import java.util.*;
+import java.util.regex.*;
 
 public class IntelliService {
 
-        private static final String PDF_PATH = "loi/loi-1960.pdf";
-        private static final String OUTPUT_PATH = "output.json";
+    private static final String MODEL = "gpt-5-mini";
+    private static final double TEMPERATURE = 0.1;
 
-        public static void main(String[] args) {
-                new IntelliService().execute();
+    // =========================================================
+    // ===================== PUBLIC API ========================
+    // =========================================================
+
+    /**
+     * Point d'entrée principal : corrige l'OCR bruité et extrait le JSON structuré
+     * de la loi en une seule passe LLM.
+     *
+     * @param pdfFile     fichier PDF source (utilisé pour le nom seulement)
+     * @param rawOcr      texte OCR brut produit par Tesseract (peut être bruité)
+     * @param pdfBaseName nom de base du PDF, ex: "loi-1962-39" (sans extension)
+     * @return JSONObject conforme au schéma attendu (articles + metadata)
+     * @throws IOException si le client Copilot n'est pas disponible
+     */
+    public JSONObject processLaw(File pdfFile, String rawOcr, String pdfBaseName) throws IOException {
+        System.out.println("[IntelliService] Démarrage extraction LLM pour " + pdfBaseName);
+        try (CopilotChatClient client = new CopilotChatClient()) {
+            if (!client.isAvailable()) {
+                throw new IOException("[IntelliService] GitHub Copilot SDK non disponible.");
+            }
+
+            String prompt = buildExtractionPrompt(rawOcr, pdfBaseName);
+            System.out.println("[IntelliService] Appel LLM (" + MODEL + ")...");
+            String llmResponse = client.generate(prompt, MODEL, TEMPERATURE);
+            System.out.println("[IntelliService] Réponse LLM reçue.");
+
+            return parseJsonFromLlmResponse(llmResponse, pdfBaseName);
         }
+    }
 
-        public void execute() {
+    public JSONObject repairJson(String rawOcr, JSONObject currentJson, List<String> qaErrors, String pdfBaseName)
+            throws IOException {
+        System.out.println("[IntelliService] Démarrage réparation LLM pour " + pdfBaseName);
+        try (CopilotChatClient client = new CopilotChatClient()) {
+            if (!client.isAvailable()) {
+                throw new IOException("[IntelliService] GitHub Copilot SDK non disponible.");
+            }
 
-                // Initialize Ollama client for local text generation
-                OllamaChatClient ollamaClient = new OllamaChatClient("http://localhost:11434");
-                String model = "mistral"; // ou "llama2", etc.
+            String prompt = buildRepairPrompt(rawOcr, currentJson, qaErrors, pdfBaseName);
+            System.out.println("[IntelliService] Appel LLM réparation (" + MODEL + ")...");
+            String llmResponse = client.generate(prompt, MODEL, TEMPERATURE);
+            System.out.println("[IntelliService] Réponse LLM réparation reçue.");
+            return parseJsonFromLlmResponse(llmResponse, pdfBaseName + "#repair");
+        }
+    }
 
-                // Vérifier que Ollama est disponible
-                if (!ollamaClient.isAvailable()) {
-                        System.err.println("Erreur : Ollama n'est pas accessible sur http://localhost:11434");
-                        System.err.println("Lancez Ollama avec: ollama serve");
-                        return;
+    /**
+     * Teste uniquement la disponibilité du client Copilot.
+     */
+    public boolean isAvailable() {
+        try (CopilotChatClient client = new CopilotChatClient()) {
+            return client.isAvailable();
+        }
+    }
+
+    // =========================================================
+    // ===================== PROMPTS ===========================
+    // =========================================================
+
+    private String buildExtractionPrompt(String rawOcr, String pdfBaseName) {
+        String signatoriesData = loadSignatoriesData();
+        return """
+                You are a specialized legal document parser for Beninese laws (République du Bénin).
+
+                CONTEXT:
+                The input text is the raw OCR output from a scanned PDF law document. It may contain:
+                - Garbled characters (e.g., "ü_", "?RESIDÈNCD", "§ue", "RXPUBIÏQUE", "I,A" instead of "LA")
+                - Broken words split across lines
+                - Wrong accent marks or missing letters
+                - Table noise and artifacts (dashes, pipes, stray characters)
+                - Old French typography (e.g., "1er" for "premier")
+                - The document identifier is: %s
+
+                YOUR TASK:
+                1. Mentally reconstruct the correct French text by correcting all OCR errors.
+                2. Extract and return a single valid JSON object (no markdown, no explanation).
+
+                STRICT JSON SCHEMA (return ONLY this, no wrapping):
+                {
+                  "articles": [
+                    { "index": "<article_number>", "content": "Article <number> : <full corrected text>" }
+                  ],
+                  "metadata": {
+                    "signatories": [
+                      { "role": "<role>", "name": "<FIRSTNAME LASTNAME>" }
+                    ],
+                    "lawDate": "<YYYY-MM-DD>",
+                    "lawObject": "<object starting with Portant/Autorisant/Tendant/Fixant...>",
+                    "source": "https://sgg.gouv.bj/doc/%s/",
+                    "lawNumber": "<YYYY - NN DU DD MOIS YYYY>"
+                  }
                 }
 
-                try (InputStream pdfStream = getClass().getClassLoader().getResourceAsStream(PDF_PATH);
-                                PDDocument document = Loader.loadPDF(new RandomAccessReadBuffer(pdfStream))) {
+                EXTRACTION RULES:
+                - Extract ALL articles: introductory (Article 1er), numbered (Article 2, Article 3...), and final (last article about promulgation)
+                - Article "index" = only the number/identifier (e.g., "1er", "2", "810-1"), NOT the full "Article X :" prefix
+                - Article "content" = starts with "Article X : " followed by the complete corrected text
+                - Do NOT include section headers or titles (TITRE I, CHAPITRE I...) as articles
+                - Preserve full legal wording — do not summarize or truncate
+                - For signatories: use the KNOWN SIGNATORIES list below to identify names. Do NOT invent signatories.
+                - If the footer OCR is damaged and a signatory name is missing, you may infer a signatory name only if it is historically unambiguous from the law date and the role.
+                - "lawDate" must be in ISO format YYYY-MM-DD. If date is ambiguous, use the date from the footer.
+                - "lawObject" must be the law's official subject (typically starts with "Portant", "Tendant", "Autorisant", "Fixant", "Relatif", etc.)
+                - "lawNumber": format is "YYYY - NN DU DD MOIS YYYY" — extract from the law header
+                - If a field cannot be extracted with confidence, use an empty string "". Do NOT invent data.
 
-                        PDFRenderer renderer = new PDFRenderer(document);
-                        OcrService ocrService = new OcrService();
-                        String rawOcr = ocrService.runEnhancedOcr(document);
-                        List<String> ocrPages = splitOcrByPage(rawOcr);
+                KNOWN SIGNATORIES (name;role format):
+                %s
 
-                        if (ocrPages.size() != document.getNumberOfPages()) {
-                                throw new IllegalStateException(
-                                                "OCR page count (" + ocrPages.size() +
-                                                                ") does not match PDF page count (" +
-                                                                document.getNumberOfPages() + ")");
-                        }
+                RAW OCR TEXT TO PROCESS:
+                <<<
+                %s
+                >>>
 
-                        StringBuilder correctedText = new StringBuilder();
+                Return ONLY the JSON object. No markdown code blocks. No explanation. No prefix.
+                """.formatted(pdfBaseName, pdfBaseName, signatoriesData, rawOcr);
+    }
 
-                        for (int i = 0; i < document.getNumberOfPages(); i++) {
-                                System.out.println("[OCR] Processing page " + (i + 1));
+    private String buildRepairPrompt(String rawOcr, JSONObject currentJson, List<String> qaErrors, String pdfBaseName) {
+        String signatoriesData = loadSignatoriesData();
+        return """
+                You are repairing an extracted JSON representation of a Beninese law.
 
-                                correctedText
-                                                .append("\n\n=== PAGE ")
-                                                .append(i + 1)
-                                                .append(" ===\n")
-                                                .append(ocrPages.get(i).trim());
-                        }
+                GOAL:
+                Improve the JSON below by fixing ONLY missing or obviously wrong values.
+                Preserve correct article text already present unless it is clearly broken.
 
-                        System.out.println(
-                                        "[LLM] Extracting structured law data with Ollama (model: " + model + ")...");
+                DOCUMENT ID:
+                %s
 
-                        String json = ollamaClient.generate(
-                                        buildExtractionPrompt(correctedText.toString()),
-                                        model,
-                                        0.2); // Température basse pour extraction structurée
+                CURRENT JSON:
+                %s
 
-                        Files.writeString(Paths.get(OUTPUT_PATH), json);
-                        System.out.println("✔ Pipeline completed successfully.");
+                QA ERRORS TO FIX:
+                %s
 
-                } catch (Exception e) {
-                        e.printStackTrace();
-                }
+                RAW OCR SOURCE:
+                <<<
+                %s
+                >>>
+
+                KNOWN SIGNATORIES:
+                %s
+
+                REPAIR RULES:
+                - Return one single valid JSON object only.
+                - Keep the same schema: articles + metadata.
+                - Prefer preserving existing article content if already coherent.
+                - Fill missing metadata fields when they are recoverable from OCR.
+                - Fix empty signatory names when recoverable from OCR, known signatories, or historically unambiguous context from the promulgation date and role.
+                - Do not fabricate uncertain values.
+                - Keep source as https://sgg.gouv.bj/doc/%s/
+
+                Return ONLY the repaired JSON.
+                """.formatted(
+                pdfBaseName,
+                currentJson.toString(2),
+                String.join("\n", qaErrors),
+                rawOcr,
+                signatoriesData,
+                pdfBaseName);
+    }
+
+    public static boolean hasEmptySignatoryName(JSONObject jsonObject) {
+        JSONObject metadata = jsonObject.optJSONObject("metadata");
+        if (metadata == null) {
+            return false;
         }
 
-        // =========================================================
-        // ===================== PROMPTS ===========================
-        // =========================================================
-
-        private String buildExtractionPrompt(String fullText) {
-                String signatoriesData = loadSignatoriesData();
-                return """
-                                You are a legal document parser.
-
-                                TASK:
-                                Extract structured law data strictly following the provided JSON schema.
-
-                                RULES:
-                                - Extract ALL articles from the law text, including introductory articles (like Article 1er), modified articles (like Article 810-1), and final articles (like Article 2)
-                                - Articles must start with "Article" followed by the article number, e.g., "Article 810-1 : ..." or "Article 2 : ..."
-                                - The index must be the article number (e.g., "810-1", "2"), not a sequential number
-                                - Do not include titles or section headers in the articles array (e.g., "TITRE IIl DU LIVRE V...")
-                                - Only include actual articles with their full content
-                                - Do not summarize articles
-                                - Preserve full legal wording
-                                - Articles must appear in the order they appear in the text
-                                - Do not invent missing information
-
-                                KNOWN SIGNATORIES:
-                                %s
-
-                                LAW TEXT:
-                                <<<
-                                %s
-                                >>>
-                                """
-                                .formatted(signatoriesData, fullText);
+        JSONArray signatories = metadata.optJSONArray("signatories");
+        if (signatories == null) {
+            return false;
         }
 
-        private String loadSignatoriesData() {
-                try (InputStream is = getClass().getClassLoader().getResourceAsStream("signatories.csv")) {
-                        if (is == null) {
-                                return "No signatories data available.";
-                        }
-                        return new String(is.readAllBytes());
-                } catch (Exception e) {
-                        return "Error loading signatories data: " + e.getMessage();
-                }
+        for (int index = 0; index < signatories.length(); index++) {
+            JSONObject signatory = signatories.optJSONObject(index);
+            if (signatory != null && signatory.optString("name", "").trim().isEmpty()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // =========================================================
+    // ===================== RESPONSE PARSING ==================
+    // =========================================================
+
+    /**
+     * Extrait le JSONObject depuis la réponse LLM qui peut contenir du markdown
+     * ou du texte parasite autour du JSON.
+     */
+    private JSONObject parseJsonFromLlmResponse(String llmResponse, String pdfBaseName) throws IOException {
+        if (llmResponse == null || llmResponse.isBlank()) {
+            throw new IOException("[IntelliService] Réponse LLM vide pour " + pdfBaseName);
         }
 
-        // =========================================================
-        // ===================== OCR SPLIT =========================
-        // =========================================================
-
-        /**
-         * Expected OCR format:
-         * === PAGE 1 ===
-         * text...
-         * === PAGE 2 ===
-         * text...
-         */
-        private List<String> splitOcrByPage(String rawOcr) {
-
-                String[] pages = rawOcr.split("===\\s*PAGE\\s*\\d+\\s*===");
-                List<String> result = new ArrayList<>();
-
-                for (String p : pages) {
-                        String trimmed = p.trim();
-                        if (!trimmed.isEmpty()) {
-                                result.add(trimmed);
-                        }
-                }
-
-                return result;
+        // 1. Essayer directement
+        String candidate = llmResponse.trim();
+        if (candidate.startsWith("{")) {
+            try {
+                return new JSONObject(candidate);
+            } catch (Exception ignored) {
+                // Reponse non strictement JSON, on tente les strategies d'extraction suivantes.
+            }
         }
+
+        // 2. Extraire le bloc JSON depuis des marqueurs markdown (```json ... ```)
+        Matcher mdMatcher = Pattern.compile("```(?:json)?\\s*\\n?(.*?)\\n?```", Pattern.DOTALL)
+                .matcher(llmResponse);
+        if (mdMatcher.find()) {
+            String extracted = mdMatcher.group(1).trim();
+            try {
+                return new JSONObject(extracted);
+            } catch (Exception ignored) {
+                // Bloc markdown detecte mais contenu encore invalide, on tente l'extraction par accolades.
+            }
+        }
+
+        // 3. Chercher la première accolade ouvrante et la dernière fermante
+        int first = llmResponse.indexOf('{');
+        int last = llmResponse.lastIndexOf('}');
+        if (first >= 0 && last > first) {
+            String extracted = llmResponse.substring(first, last + 1);
+            try {
+                return new JSONObject(extracted);
+            } catch (Exception e) {
+                throw new IOException("[IntelliService] JSON invalide dans la réponse LLM pour "
+                        + pdfBaseName + ": " + e.getMessage());
+            }
+        }
+
+        throw new IOException("[IntelliService] Aucun JSON valide trouvé dans la réponse LLM pour " + pdfBaseName);
+    }
+
+    // =========================================================
+    // ===================== HELPERS ===========================
+    // =========================================================
+
+    private String loadSignatoriesData() {
+        try (InputStream is = getClass().getClassLoader().getResourceAsStream("signatories.csv")) {
+            if (is == null) {
+                return "No signatories data available.";
+            }
+            return new String(is.readAllBytes());
+        } catch (Exception e) {
+            return "Error loading signatories data: " + e.getMessage();
+        }
+    }
 }

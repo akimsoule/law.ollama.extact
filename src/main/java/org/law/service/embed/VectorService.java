@@ -8,6 +8,10 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 /**
@@ -20,6 +24,7 @@ public class VectorService {
 
     private static final String ARTICLE_DIR = "src/main/resources/data/article";
     private static final String VECTOR_DIR = "src/main/resources/data/vector";
+    private static final Pattern ARTICLE_JSON_PATTERN = Pattern.compile("^loi-(\\d{2}|\\d{4})-(\\d{2}|\\d{3})\\.json$", Pattern.CASE_INSENSITIVE);
 
     private final Embedder embedder;
 
@@ -81,25 +86,46 @@ public class VectorService {
      */
     public void vectorizeAllArticles() throws IOException {
         Path articleDir = Paths.get(ARTICLE_DIR);
-        Path vectorDir = Paths.get(VECTOR_DIR);
-
-        // Créer le répertoire vector s'il n'existe pas
-        Files.createDirectories(vectorDir);
 
         try (Stream<Path> jsonFiles = Files.list(articleDir)
                 .filter(p -> p.toString().endsWith(".json"))
                 .sorted()) {
-            jsonFiles.forEachOrdered(jsonPath -> {
-                try {
-                    System.out.println("Vectorisation de " + jsonPath.getFileName() + "...");
-                    vectorizeArticle(jsonPath, vectorDir);
-                    System.out.println("✓ Vectorisation réussie pour " + jsonPath.getFileName());
-                } catch (IOException e) {
-                    System.err.println("✗ Erreur lors de la vectorisation de " + jsonPath + " : " + e.getMessage());
-                    e.printStackTrace(System.err);
-                }
-            });
+            vectorizeArticles(jsonFiles.collect(Collectors.toList()));
         }
+    }
+
+    public void vectorizeArticles(List<Path> jsonFiles) throws IOException {
+        Path vectorDir = Paths.get(VECTOR_DIR);
+        Files.createDirectories(vectorDir);
+
+        List<Path> validJsonFiles = new ArrayList<>();
+        List<Path> ignoredJsonFiles = new ArrayList<>();
+
+        for (Path jsonPath : jsonFiles) {
+            if (ARTICLE_JSON_PATTERN.matcher(jsonPath.getFileName().toString()).matches()) {
+                validJsonFiles.add(jsonPath);
+            } else {
+                ignoredJsonFiles.add(jsonPath);
+            }
+        }
+
+        for (Path ignoredPath : ignoredJsonFiles) {
+            System.out.println("Ignore (nom JSON non conforme) : " + ignoredPath.getFileName());
+        }
+
+        validJsonFiles.forEach(jsonPath -> {
+            try {
+                System.out.println("Vectorisation de " + jsonPath.getFileName() + "...");
+                vectorizeArticle(jsonPath, vectorDir);
+                System.out.println("✓ Vectorisation réussie pour " + jsonPath.getFileName());
+            } catch (IOException e) {
+                System.err.println("✗ Erreur lors de la vectorisation de " + jsonPath + " : " + e.getMessage());
+                e.printStackTrace(System.err);
+            }
+        });
+
+        System.out.println("Resume vectorisation: " + validJsonFiles.size() + " fichiers vectorises, "
+                + ignoredJsonFiles.size() + " ignores.");
     }
 
     /**

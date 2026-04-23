@@ -217,6 +217,14 @@ public class JsonService {
         FooterParser footerTrans = new FooterParser();
         Set<Signataire> signataires = footerTrans.extractSignataires(lawSection.getFooter());
 
+        if (signataires.isEmpty()) {
+            signataires = footerTrans.extractSignataires(lawSection.getBody());
+        }
+
+        if (signataires.isEmpty()) {
+            signataires = footerTrans.extractSignataires(lawSection.getFullText());
+        }
+
         for (Signataire sig : signataires) {
             JSONObject sigObj = new JSONObject();
             sigObj.put("name", sig.getName());

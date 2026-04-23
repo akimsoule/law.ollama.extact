@@ -249,15 +249,22 @@ public class OcrService {
      * @throws IOException en cas d'erreur
      */
     public String getOcrText(java.io.File pdfFile) throws IOException {
+        return getOcrText(pdfFile, false);
+    }
+
+    public String getOcrText(java.io.File pdfFile, boolean forceRefresh) throws IOException {
         String pdfName = pdfFile.getName();
         String ocrName = pdfName.replace(".pdf", ".txt");
         Path ocrDir = Path.of("src/main/resources/data/ocr");
         Path ocrFile = ocrDir.resolve(ocrName);
 
-        if (Files.exists(ocrFile)) {
+        if (!forceRefresh && Files.exists(ocrFile)) {
             System.out.println("Texte OCR chargé depuis : " + ocrFile.toAbsolutePath());
             return Files.readString(ocrFile);
         } else {
+            if (forceRefresh && Files.exists(ocrFile)) {
+                System.out.println("Rafraichissement OCR force pour : " + ocrFile.toAbsolutePath());
+            }
             StrategyService strategyService = new StrategyService();
             String fullText = strategyService.getFullContent(pdfFile);
             Files.createDirectories(ocrDir);
