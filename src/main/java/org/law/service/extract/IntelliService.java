@@ -6,7 +6,7 @@ package org.law.service.extract;
  * Pipeline: Raw OCR (Tesseract) → LLM correction + structured extraction
  *
  * Models:
- * - Text: GitHub Copilot SDK (gpt-5-mini)
+ * - Text: DeepSeek (configured via deepseek.default.model)
  *
  * Features:
  * - OCR error correction via LLM (garbled characters, broken words, accents)
@@ -16,22 +16,29 @@ package org.law.service.extract;
  * - Used as fallback when the regex-based pipeline produces empty results
  */
 
-import org.apache.pdfbox.Loader;
-import org.apache.pdfbox.pdmodel.PDDocument;
-import org.apache.pdfbox.io.RandomAccessReadBuffer;
-import org.json.JSONArray;
 import org.json.JSONObject;
-import org.law.service.chat.CopilotChatClient;
+import org.json.JSONArray;
+import org.law.config.Config;
+import org.law.service.chat.DeepSeekBatchClient;
 
-import java.io.*;
-import java.nio.file.*;
-import java.util.*;
-import java.util.regex.*;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.io.File;
+import java.io.IOException;
+import java.io.InputStream;
+import java.util.List;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 public class IntelliService {
 
-    private static final String MODEL = "gpt-5-mini";
-    private static final double TEMPERATURE = 0.1;
+    private static final Config CONFIG = Config.getInstance();
+    private static final Logger LOGGER = LoggerFactory.getLogger(IntelliService.class);
+    private static final String MODEL = CONFIG.getDeepSeekDefaultModel();
+    private static final double TEMPERATURE = CONFIG.getDeepSeekTemperature();
+    private static final int MAX_RETRIES = CONFIG.getDeepSeekMaxRetries();
+    private static final long RETRY_DELAY_MS = CONFIG.getDeepSeekRetryDelayMs();
 
     // =========================================================
     // ===================== PUBLIC API ========================
@@ -45,19 +52,56 @@ public class IntelliService {
      * @param rawOcr      texte OCR brut produit par Tesseract (peut être bruité)
      * @param pdfBaseName nom de base du PDF, ex: "loi-1962-39" (sans extension)
      * @return JSONObject conforme au schéma attendu (articles + metadata)
-     * @throws IOException si le client Copilot n'est pas disponible
+     * @throws IOException si le service DeepSeek n'est pas disponible
      */
     public JSONObject processLaw(File pdfFile, String rawOcr, String pdfBaseName) throws IOException {
-        System.out.println("[IntelliService] Démarrage extraction LLM pour " + pdfBaseName);
-        try (CopilotChatClient client = new CopilotChatClient()) {
+        LOGGER.info("[IntelliService] Démarrage extraction LLM pour {}", pdfBaseName);
+
+        // Pré-traitement du texte OCR pour les lois anciennes
+        String processedOcr = OcrPreprocessor.preprocess(rawOcr, pdfBaseName);
+
+        for (int attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+            try {
+                JSONObject result = executeDeepSeekExtraction(processedOcr, pdfBaseName, attempt);
+                if (isValidResult(result)) {
+                    return result;
+                }
+                if (attempt < MAX_RETRIES) {
+                    LOGGER.warn("[IntelliService] Résultat invalide, nouvelle tentative...");
+                    Thread.sleep(RETRY_DELAY_MS);
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new IOException("[IntelliService] Interruption lors du retry", e);
+            } catch (Exception e) {
+                LOGGER.error("[IntelliService] Erreur tentative {}: {}", attempt, e.getMessage());
+                if (attempt == MAX_RETRIES) {
+                    throw new IOException("[IntelliService] Erreur DeepSeek lors de la generation", e);
+                }
+                try {
+                    Thread.sleep(RETRY_DELAY_MS);
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    throw new IOException("[IntelliService] Interruption lors du retry", ie);
+                }
+            }
+        }
+
+        throw new IOException("[IntelliService] Échec après " + MAX_RETRIES + " tentatives");
+    }
+
+    private JSONObject executeDeepSeekExtraction(String processedOcr, String pdfBaseName, int attempt)
+            throws IOException {
+        try (DeepSeekBatchClient client = new DeepSeekBatchClient()) {
             if (!client.isAvailable()) {
-                throw new IOException("[IntelliService] GitHub Copilot SDK non disponible.");
+                throw new IOException("[IntelliService] DeepSeek non disponible.");
             }
 
-            String prompt = buildExtractionPrompt(rawOcr, pdfBaseName);
-            System.out.println("[IntelliService] Appel LLM (" + MODEL + ")...");
+            String prompt = buildExtractionPrompt(processedOcr, pdfBaseName);
+            LOGGER.info("[IntelliService] Appel DeepSeek ({}) - tentative {}/{}", MODEL, attempt, MAX_RETRIES);
+
             String llmResponse = client.generate(prompt, MODEL, TEMPERATURE);
-            System.out.println("[IntelliService] Réponse LLM reçue.");
+            LOGGER.info("[IntelliService] Réponse DeepSeek reçue.");
 
             return parseJsonFromLlmResponse(llmResponse, pdfBaseName);
         }
@@ -65,25 +109,25 @@ public class IntelliService {
 
     public JSONObject repairJson(String rawOcr, JSONObject currentJson, List<String> qaErrors, String pdfBaseName)
             throws IOException {
-        System.out.println("[IntelliService] Démarrage réparation LLM pour " + pdfBaseName);
-        try (CopilotChatClient client = new CopilotChatClient()) {
+        LOGGER.info("[IntelliService] Démarrage réparation LLM pour {}", pdfBaseName);
+        try (DeepSeekBatchClient client = new DeepSeekBatchClient()) {
             if (!client.isAvailable()) {
-                throw new IOException("[IntelliService] GitHub Copilot SDK non disponible.");
+                throw new IOException("[IntelliService] DeepSeek non disponible.");
             }
 
             String prompt = buildRepairPrompt(rawOcr, currentJson, qaErrors, pdfBaseName);
-            System.out.println("[IntelliService] Appel LLM réparation (" + MODEL + ")...");
+            LOGGER.info("[IntelliService] Appel DeepSeek réparation ({})...", MODEL);
             String llmResponse = client.generate(prompt, MODEL, TEMPERATURE);
-            System.out.println("[IntelliService] Réponse LLM réparation reçue.");
+            LOGGER.info("[IntelliService] Réponse DeepSeek réparation reçue.");
             return parseJsonFromLlmResponse(llmResponse, pdfBaseName + "#repair");
         }
     }
 
     /**
-     * Teste uniquement la disponibilité du client Copilot.
+     * Teste uniquement la disponibilité du service DeepSeek.
      */
     public boolean isAvailable() {
-        try (CopilotChatClient client = new CopilotChatClient()) {
+        try (DeepSeekBatchClient client = new DeepSeekBatchClient()) {
             return client.isAvailable();
         }
     }
@@ -148,7 +192,8 @@ public class IntelliService {
                 >>>
 
                 Return ONLY the JSON object. No markdown code blocks. No explanation. No prefix.
-                """.formatted(pdfBaseName, pdfBaseName, signatoriesData, rawOcr);
+                """
+                .formatted(pdfBaseName, pdfBaseName, signatoriesData, rawOcr);
     }
 
     private String buildRepairPrompt(String rawOcr, JSONObject currentJson, List<String> qaErrors, String pdfBaseName) {
@@ -187,13 +232,14 @@ public class IntelliService {
                 - Keep source as https://sgg.gouv.bj/doc/%s/
 
                 Return ONLY the repaired JSON.
-                """.formatted(
-                pdfBaseName,
-                currentJson.toString(2),
-                String.join("\n", qaErrors),
-                rawOcr,
-                signatoriesData,
-                pdfBaseName);
+                """
+                .formatted(
+                        pdfBaseName,
+                        currentJson.toString(2),
+                        String.join("\n", qaErrors),
+                        rawOcr,
+                        signatoriesData,
+                        pdfBaseName);
     }
 
     public static boolean hasEmptySignatoryName(JSONObject jsonObject) {
@@ -247,7 +293,8 @@ public class IntelliService {
             try {
                 return new JSONObject(extracted);
             } catch (Exception ignored) {
-                // Bloc markdown detecte mais contenu encore invalide, on tente l'extraction par accolades.
+                // Bloc markdown detecte mais contenu encore invalide, on tente l'extraction par
+                // accolades.
             }
         }
 
@@ -270,6 +317,31 @@ public class IntelliService {
     // =========================================================
     // ===================== HELPERS ===========================
     // =========================================================
+
+    /**
+     * Validation rapide du résultat JSON
+     */
+    private boolean isValidResult(JSONObject result) {
+        if (result == null)
+            return false;
+
+        JSONObject metadata = result.optJSONObject("metadata");
+        if (metadata == null)
+            return false;
+
+        JSONArray articles = result.optJSONArray("articles");
+        if (articles == null || articles.length() == 0)
+            return false;
+
+        // Vérification basique des métadonnées
+        String lawDate = metadata.optString("lawDate", "");
+        String lawNumber = metadata.optString("lawNumber", "");
+
+        // Au moins un champ de métadonnée ET au moins un article requis
+        boolean hasMetadata = !lawDate.isEmpty() || !lawNumber.isEmpty();
+        boolean hasArticles = articles.length() > 0;
+        return hasMetadata && hasArticles;
+    }
 
     private String loadSignatoriesData() {
         try (InputStream is = getClass().getClassLoader().getResourceAsStream("signatories.csv")) {

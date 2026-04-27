@@ -1,5 +1,8 @@
 package org.law.service.process;
 
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.json.JSONArray;
 import org.json.JSONObject;
 import org.law.model.LawSection;
@@ -16,6 +19,9 @@ import java.util.Set;
  * Service pour construire l'objet JSON à partir des données extraites.
  */
 public class JsonService {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger(JsonService.class);
+
 
     /**
      * Construit l'objet JSON à partir d'une LawSection.
@@ -49,7 +55,7 @@ public class JsonService {
         String currentArticle = "";
         String currentArticleNumber = "";
         if (articleModified) {
-            System.out.println("Le nombre d'articles est " + articles.size());
+            LOGGER.info("Le nombre d'articles est " + articles.size());
         }
 
         for (String article : articles) {
@@ -124,7 +130,7 @@ public class JsonService {
 
             return numStr;
         } catch (Exception e) {
-            System.err.println("[ERROR] Impossible d'extraire l'index pour l'article : "
+            LOGGER.error("[ERROR] Impossible d'extraire l'index pour l'article : "
                     + article.substring(0, Math.min(20, article.length())));
             return "UNKNOWN";
         }
@@ -140,17 +146,17 @@ public class JsonService {
         try {
             lawDate = headerTrans.extractLawDate(lawSection);
         } catch (DateTimeParseException dateTimeParseException) {
-            System.out.println("Échoué => 1ère Tentative de récupération de la date dans le header => Échoué");
+            LOGGER.info("Échoué => 1ère Tentative de récupération de la date dans le header => Échoué");
             try {
                 lawDate = footerTrans.extractLawDate(lawSection);
             } catch (DateTimeParseException ignored) {
-                System.out.println("Échoué => 2ème Tentative de récupération de la date dans le footer => Échoué");
+                LOGGER.info("Échoué => 2ème Tentative de récupération de la date dans le footer => Échoué");
 
             }
         }
 
         if (lawDate.isEmpty()) {
-            System.out.println("LawDate is empty ...");
+            LOGGER.info("LawDate is empty ...");
         }
 
         metadata.put("lawNumber", lawNumber);
@@ -170,7 +176,7 @@ public class JsonService {
      */
     private String generateAndValidateSource(LawSection lawSection, String lawNumber) {
         if (lawNumber == null || lawNumber.isEmpty()) {
-            System.out.println("Warning: lawNumber is empty, cannot generate source URL");
+            LOGGER.info("Warning: lawNumber is empty, cannot generate source URL");
             return "";
         }
 
@@ -184,7 +190,7 @@ public class JsonService {
                     .replace(" ", "");
             lawSection.setBaseName(result);
         } catch (NullPointerException | IndexOutOfBoundsException e) {
-            System.out.println("Warning: Failed to process lawNumber: " + e.getMessage());
+            LOGGER.info("Warning: Failed to process lawNumber: " + e.getMessage());
             result = "";
         }
 
@@ -192,10 +198,10 @@ public class JsonService {
 
         // Valider l'URL (vérification basique)
         if (isValidUrl(source)) {
-            System.out.println("Generated source URL: " + source);
+            LOGGER.info("Generated source URL: " + source);
             return source;
         } else {
-            System.out.println("Warning: Generated source URL is invalid: " + source);
+            LOGGER.info("Warning: Generated source URL is invalid: " + source);
             return "";
         }
     }

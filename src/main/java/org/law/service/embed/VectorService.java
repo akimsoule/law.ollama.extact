@@ -1,5 +1,8 @@
 package org.law.service.embed;
 
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.json.JSONArray;
 import org.json.JSONObject;
 import org.law.service.embed.Embedder;
@@ -22,6 +25,9 @@ import java.util.stream.Stream;
  */
 public class VectorService {
 
+    private static final Logger LOGGER = LoggerFactory.getLogger(VectorService.class);
+
+
     private static final String ARTICLE_DIR = "src/main/resources/data/article";
     private static final String VECTOR_DIR = "src/main/resources/data/vector";
     private static final Pattern ARTICLE_JSON_PATTERN = Pattern.compile("^loi-(\\d{2}|\\d{4})-(\\d{2}|\\d{3})\\.json$", Pattern.CASE_INSENSITIVE);
@@ -32,30 +38,7 @@ public class VectorService {
         this.embedder = new Embedder();
     }
 
-    /**
-     * Point d'entrée pour vectoriser/re-vectoriser les articles.
-     * Supprime les vecteurs existants puis en crée de nouveaux.
-     */
-    public static void main(String[] args) {
-        try {
-            VectorService vectorService = new VectorService();
-
-            System.out.println("Suppression des vecteurs existants...");
-            vectorService.deleteAllVectors();
-            System.out.println("Vecteurs supprimés avec succès.");
-
-            System.out.println("Début de la vectorisation des articles...");
-            long startTime = System.currentTimeMillis();
-            vectorService.vectorizeAllArticles();
-            long endTime = System.currentTimeMillis();
-
-            System.out.println("Vectorisation terminée en " + (endTime - startTime) + " ms");
-        } catch (IOException e) {
-            System.err.println("Erreur lors de la vectorisation : " + e.getMessage());
-            e.printStackTrace();
-        }
-    }
-
+    
     /**
      * Supprime tous les vecteurs du répertoire vector/.
      */
@@ -70,13 +53,13 @@ public class VectorService {
                             try {
                                 Files.delete(path);
                             } catch (IOException e) {
-                                System.err.println("Erreur lors de la suppression de " + path + " : " + e.getMessage());
+                                LOGGER.error("Erreur lors de la suppression de " + path + " : " + e.getMessage());
                             }
                         });
             }
-            System.out.println("Répertoire " + vectorDir.toAbsolutePath() + " supprimé.");
+            LOGGER.info("Répertoire " + vectorDir.toAbsolutePath() + " supprimé.");
         } else {
-            System.out.println("Le répertoire " + vectorDir.toAbsolutePath() + " n'existe pas.");
+            LOGGER.info("Le répertoire " + vectorDir.toAbsolutePath() + " n'existe pas.");
         }
     }
 
@@ -110,21 +93,21 @@ public class VectorService {
         }
 
         for (Path ignoredPath : ignoredJsonFiles) {
-            System.out.println("Ignore (nom JSON non conforme) : " + ignoredPath.getFileName());
+            LOGGER.info("Ignore (nom JSON non conforme) : " + ignoredPath.getFileName());
         }
 
         validJsonFiles.forEach(jsonPath -> {
             try {
-                System.out.println("Vectorisation de " + jsonPath.getFileName() + "...");
+                LOGGER.info("Vectorisation de " + jsonPath.getFileName() + "...");
                 vectorizeArticle(jsonPath, vectorDir);
-                System.out.println("✓ Vectorisation réussie pour " + jsonPath.getFileName());
+                LOGGER.info("✓ Vectorisation réussie pour " + jsonPath.getFileName());
             } catch (IOException e) {
-                System.err.println("✗ Erreur lors de la vectorisation de " + jsonPath + " : " + e.getMessage());
+                LOGGER.error("✗ Erreur lors de la vectorisation de " + jsonPath + " : " + e.getMessage());
                 e.printStackTrace(System.err);
             }
         });
 
-        System.out.println("Resume vectorisation: " + validJsonFiles.size() + " fichiers vectorises, "
+        LOGGER.info("Resume vectorisation: " + validJsonFiles.size() + " fichiers vectorises, "
                 + ignoredJsonFiles.size() + " ignores.");
     }
 
@@ -190,7 +173,7 @@ public class VectorService {
         Path vectorPath = vectorDir.resolve(vectorFileName);
         Files.writeString(vectorPath, vectorObject.toString(4));
 
-        System.out.println("Vecteurs sauvegardés dans : " + vectorPath.toAbsolutePath());
+        LOGGER.info("Vecteurs sauvegardés dans : " + vectorPath.toAbsolutePath());
     }
 
     /**

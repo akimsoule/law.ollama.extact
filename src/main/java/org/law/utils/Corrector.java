@@ -1,13 +1,24 @@
 package org.law.utils;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.text.Normalizer;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.LinkedList;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.stream.Stream;
 
 public interface Corrector extends UtilsString {
+
+    static final Logger LOGGER = LoggerFactory.getLogger(Corrector.class);
 
     class CorrectionHolder {
 
@@ -57,7 +68,7 @@ public interface Corrector extends UtilsString {
                     dicSet.add(w.toLowerCase());
                 });
             } catch (IOException e) {
-                System.err.println("Erreur dictionnaire : " + e.getMessage());
+                LOGGER.error("Erreur dictionnaire : " + e.getMessage());
             }
         }
 
@@ -75,7 +86,7 @@ public interface Corrector extends UtilsString {
                     dicSet.add(w.toLowerCase());
                 });
             } catch (IOException e) {
-                System.err.println("Erreur dictionnaire custom : " + e.getMessage());
+                LOGGER.error("Erreur dictionnaire custom : " + e.getMessage());
             }
         }
 
@@ -338,7 +349,7 @@ public interface Corrector extends UtilsString {
     }
 
     private String formatResult(String original, String corrected, String type) {
-        System.out.println("=> [" + type + "] " + original + " -> " + corrected);
+        LOGGER.info("=> [" + type + "] " + original + " -> " + corrected);
 
         if (Character.isUpperCase(original.charAt(0))) {
             return Character.toUpperCase(corrected.charAt(0)) +

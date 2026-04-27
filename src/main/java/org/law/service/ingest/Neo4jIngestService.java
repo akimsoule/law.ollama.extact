@@ -30,11 +30,11 @@ import java.util.stream.Stream;
  * - DROP_CREATE = true : Supprime tout et recrée (rechargement complet)
  * - DROP_CREATE = false : Ingestion incrémentale (pas de doublons)
  */
-public class Neo4jIngestService {
+public class Neo4jIngestService implements AutoCloseable {
 
     private static final Logger logger = LoggerFactory.getLogger(Neo4jIngestService.class);
 
-    private static final boolean DROP_CREATE = true;
+    private final boolean dropCreate;
 
     private final String neo4jUri;
     private final String neo4jUser;
@@ -53,11 +53,13 @@ public class Neo4jIngestService {
     private int deletedNodes = 0;
 
     public Neo4jIngestService() {
-        this.neo4jUri = Config.getProperty("neo4j.uri", "neo4j://localhost:7687");
-        this.neo4jUser = Config.getProperty("neo4j.user", "neo4j");
-        this.neo4jPassword = Config.getProperty("neo4j.password", "password");
+        Config config = Config.getInstance();
+        this.neo4jUri = config.getProperty("neo4j.uri", "neo4j://localhost:7687");
+        this.neo4jUser = config.getProperty("neo4j.user", "neo4j");
+        this.neo4jPassword = config.getProperty("neo4j.password", "password");
         this.articleDir = "src/main/resources/data/article";
         this.vectorDir = "src/main/resources/data/vector";
+        this.dropCreate = config.getBooleanProperty("neo4j.drop.create", true);
     }
 
     public void connect() {
@@ -142,7 +144,7 @@ public class Neo4jIngestService {
         JSONArray articles = lawJson.getJSONArray("articles");
         JSONArray vectorArticles = vectorJson.optJSONArray("articles");
 
-        if (DROP_CREATE) {
+        if (dropCreate) {
             // Compter les articles à supprimer
             var countResult = session.run(
                     "MATCH (a:ARTICLE)-[:APPARTIENT_A]->(l:LOI {id: $lawNumber}) RETURN count(a) as count",
@@ -216,7 +218,7 @@ public class Neo4jIngestService {
         createdArticles = 0;
         deletedArticles = 0;
         deletedNodes = 0;
-        if (DROP_CREATE)
+        if (dropCreate)
             clearDatabase();
         loadData();
         logSummary();
@@ -253,11 +255,16 @@ public class Neo4jIngestService {
         }
     }
 
+    @Override
+    public void close() {
+        disconnect();
+    }
+
     public static void main(String[] args) throws IOException {
-        Neo4jIngestService service = new Neo4jIngestService();
-        service.connect();
-        service.createConstraintsAndIndexes();
-        service.ingestAll();
-        service.disconnect();
+        try (Neo4jIngestService service = new Neo4jIngestService()) {
+            service.connect();
+            service.createConstraintsAndIndexes();
+            service.ingestAll();
+        }
     }
 }

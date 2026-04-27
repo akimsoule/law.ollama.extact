@@ -1,5 +1,7 @@
 package org.law.service.extract;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.rendering.PDFRenderer;
 import org.bytedeco.javacpp.BytePointer;
@@ -18,12 +20,17 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 
-import static org.bytedeco.leptonica.global.leptonica.*;
+import static org.bytedeco.leptonica.global.leptonica.pixConvertRGBToGray;
+import static org.bytedeco.leptonica.global.leptonica.pixDestroy;
+import static org.bytedeco.leptonica.global.leptonica.pixReadMem;
+import static org.bytedeco.leptonica.global.leptonica.pixThresholdToBinary;
 
 /**
  * Service dédié à l'OCR avec Tesseract.
  */
 public class OcrService {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger(OcrService.class);
 
     private static final String TESSDATA_PATH = "src/main/resources/tessdata";
 
@@ -44,7 +51,7 @@ public class OcrService {
 
         try (TessBaseAPI api = new TessBaseAPI()) {
             if (api.Init(TESSDATA_PATH, "fra") != 0) {
-                throw new RuntimeException("Impossible d'initialiser Tesseract.");
+                throw new IllegalStateException("Impossible d'initialiser Tesseract.");
             }
 
             // Set combined files for Tesseract
@@ -129,7 +136,7 @@ public class OcrService {
                     }
 
                     if (bestText == null || bestText.isBlank()) {
-                        throw new RuntimeException("Page " + (i + 1)
+                        throw new IllegalStateException("Page " + (i + 1)
                                 + " : texte OCR vide même après tous les fallbacks. Vérifiez l'image de la page.");
                     }
                     pageText = bestText;
@@ -173,7 +180,7 @@ public class OcrService {
                     }
 
                     if (pageText == null || pageText.isBlank()) {
-                        throw new RuntimeException("Page " + (i + 1)
+                        throw new IllegalStateException("Page " + (i + 1)
                                 + " : texte OCR vide même après tous les fallbacks. Vérifiez l'image de la page.");
                     }
                 }
@@ -226,7 +233,7 @@ public class OcrService {
                     .sorted()
                     .flatMap(p -> {
                         try {
-                            System.out.println("Loading ... " + p.getFileName());
+                            LOGGER.info("Loading ... " + p.getFileName());
                             return Files.readAllLines(p).stream();
                         } catch (IOException e) {
                             return List.<String>of().stream();
@@ -259,17 +266,17 @@ public class OcrService {
         Path ocrFile = ocrDir.resolve(ocrName);
 
         if (!forceRefresh && Files.exists(ocrFile)) {
-            System.out.println("Texte OCR chargé depuis : " + ocrFile.toAbsolutePath());
+            LOGGER.info("Texte OCR chargé depuis : " + ocrFile.toAbsolutePath());
             return Files.readString(ocrFile);
         } else {
             if (forceRefresh && Files.exists(ocrFile)) {
-                System.out.println("Rafraichissement OCR force pour : " + ocrFile.toAbsolutePath());
+                LOGGER.info("Rafraichissement OCR force pour : " + ocrFile.toAbsolutePath());
             }
             StrategyService strategyService = new StrategyService();
             String fullText = strategyService.getFullContent(pdfFile);
             Files.createDirectories(ocrDir);
             Files.writeString(ocrFile, fullText);
-            System.out.println("Texte OCR sauvegardé dans : " + ocrFile.toAbsolutePath());
+            LOGGER.info("Texte OCR sauvegardé dans : " + ocrFile.toAbsolutePath());
             return fullText;
         }
     }

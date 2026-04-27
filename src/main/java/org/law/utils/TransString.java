@@ -2,7 +2,8 @@ package org.law.utils;
 
 import org.law.model.LawSection;
 
-import java.util.*;
+import java.util.List;
+import java.util.Locale;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
 

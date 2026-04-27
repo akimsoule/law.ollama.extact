@@ -1,5 +1,8 @@
 package org.law.service.process;
 
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import com.google.common.base.Strings;
 import org.languagetool.JLanguageTool;
 import org.languagetool.language.French;
@@ -11,13 +14,21 @@ import org.law.utils.TransString;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.List;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
  * Service de correction linguistique en Singleton pour traitement Batch.
  */
 public class LangToolService implements TransString {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger(LangToolService.class);
+
 
     private static final boolean CORRECTION_ACTIVE = true;
     private static final String TESSDATA_PATH = "src/main/resources/tessdata";
@@ -72,7 +83,7 @@ public class LangToolService implements TransString {
                 }
             }
         } catch (IOException e) {
-            System.err.println("Erreur chargement dictionnaire : " + e.getMessage());
+            LOGGER.error("Erreur chargement dictionnaire : " + e.getMessage());
         }
         return tokens;
     }
@@ -85,18 +96,25 @@ public class LangToolService implements TransString {
         }
     }
 
+    /**
+     * Libère l'instance JLanguageTool du thread courant.
+     * À appeler après traitement dans un pool de threads réutilisables.
+     */
+    public void releaseThreadLocal() {
+        languageToolThreadLocal.remove();
+    }
+
     public String getCorrectedText(String text) throws IOException {
-        // String corrected = correctWordWithDict(text);
-        // text = corrected;
-        if (!CORRECTION_ACTIVE) {
+        if (!CORRECTION_ACTIVE || Strings.isNullOrEmpty(text)) {
             return text;
         }
 
-        // Récupère l'instance dédiée au thread actuel
         JLanguageTool tool = languageToolThreadLocal.get();
         List<RuleMatch> matches = tool.check(text);
+        if (matches.isEmpty()) {
+            return text;
+        }
 
-        // Correction de la fin vers le début pour préserver les indices
         List<RuleMatch> sortedMatches = new ArrayList<>(matches);
         sortedMatches.sort(Comparator.comparingInt(RuleMatch::getFromPos).reversed());
 
@@ -115,7 +133,7 @@ public class LangToolService implements TransString {
 
                 // Sécurité : évite les remplacements trop courts ou vides
                 if (suggestion != null && (match.getToPos() - match.getFromPos() > 2)) {
-                    System.out.println("Remplacement de " + originalWord +
+                    LOGGER.info("Remplacement de " + originalWord +
                             " par " + suggestion);
                     sb.replace(match.getFromPos(), match.getToPos(), suggestion);
                 }

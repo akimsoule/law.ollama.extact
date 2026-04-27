@@ -1,5 +1,8 @@
 package org.law.service.extract;
 
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.law.model.LawSection;
 import org.law.service.parse.BodyParser;
 import org.law.service.parse.FooterParser;
@@ -9,6 +12,9 @@ import org.law.utils.ExtractString;
 import org.law.utils.TransString;
 
 public class ExtractorService implements BoolString, ExtractString, TransString {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger(ExtractorService.class);
+
 
     private final String fullContent;
     private final HeaderParser headerTrans;
@@ -24,7 +30,7 @@ public class ExtractorService implements BoolString, ExtractString, TransString 
 
     public LawSection extractLawSection() throws Exception {
         long startTime = System.currentTimeMillis();
-        System.out.println("Début de l'extraction des sections...");
+        LOGGER.info("Début de l'extraction des sections...");
 
         LawSection lawSection = LawSection.builder().build();
 
@@ -57,20 +63,20 @@ public class ExtractorService implements BoolString, ExtractString, TransString 
         long startCleanHeader = System.currentTimeMillis();
         lawSection.setHeader(headerTrans.cleanUpHeader(lawSection.getHeader()));
         long endCleanHeader = System.currentTimeMillis();
-        System.out.println("Temps pour nettoyage du header : " + (endCleanHeader - startCleanHeader) + " ms");
+        LOGGER.info("Temps pour nettoyage du header : " + (endCleanHeader - startCleanHeader) + " ms");
 
         long startCleanBody = System.currentTimeMillis();
         lawSection.setBody(bodyTrans.cleanUpBody(lawSection.getBody()));
         long endCleanBody = System.currentTimeMillis();
-        System.out.println("Temps pour nettoyage du body : " + (endCleanBody - startCleanBody) + " ms");
+        LOGGER.info("Temps pour nettoyage du body : " + (endCleanBody - startCleanBody) + " ms");
 
         long startCleanFooter = System.currentTimeMillis();
         lawSection.setFooter(footerTrans.cleanUpFooter(lawSection.getFooter()));
         long endCleanFooter = System.currentTimeMillis();
-        System.out.println("Temps pour nettoyage du footer : " + (endCleanFooter - startCleanFooter) + " ms");
+        LOGGER.info("Temps pour nettoyage du footer : " + (endCleanFooter - startCleanFooter) + " ms");
 
         long endTime = System.currentTimeMillis();
-        System.out.println("Temps total pour extractLawSection : " + (endTime - startTime) + " ms");
+        LOGGER.info("Temps total pour extractLawSection : " + (endTime - startTime) + " ms");
 
         return lawSection;
     }

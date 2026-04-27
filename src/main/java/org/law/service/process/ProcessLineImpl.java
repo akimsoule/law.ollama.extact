@@ -1,10 +1,16 @@
 package org.law.service.process;
 
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.law.utils.BoolString;
 import org.law.utils.ExtractString;
 import org.law.utils.TransString;
 
 public class ProcessLineImpl implements BoolString, ExtractString, TransString {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger(ProcessLineImpl.class);
+
 
     private static final String END_BODY_COTONOU = "Fait à Cotonou";
     private static final String END_BODY_PORTO_NOVO = "Fait à Porto-Novo";
@@ -17,7 +23,7 @@ public class ProcessLineImpl implements BoolString, ExtractString, TransString {
 
         boolean inBody = false;
 
-        System.out.println("--- Début du traitement OCR ---");
+        LOGGER.info("--- Début du traitement OCR ---");
 
         String[] lines = ocr.split("\n");
         for (String rawLine : lines) {
@@ -29,7 +35,7 @@ public class ProcessLineImpl implements BoolString, ExtractString, TransString {
 
             if (!inBody && containsIgnoreCase(line, "promulgue")) {
                 inBody = true;
-                System.out.println("[INFO] Zone 'Promulgue' détectée. Début de l'analyse des articles.");
+                LOGGER.info("[INFO] Zone 'Promulgue' détectée. Début de l'analyse des articles.");
             }
 
             if (inBody) {
@@ -42,7 +48,7 @@ public class ProcessLineImpl implements BoolString, ExtractString, TransString {
                 if (normalized != null) {
                     line = normalized;
                 }
-                System.out.println("[INFO] Zone de signature détectée. Fin de l'analyse des articles.");
+                LOGGER.info("[INFO] Zone de signature détectée. Fin de l'analyse des articles.");
             }
 
             if (inBody && isTitle(line)) {
@@ -52,7 +58,7 @@ public class ProcessLineImpl implements BoolString, ExtractString, TransString {
             result.append(line).append("\n");
         }
 
-        System.out.println("--- Fin du traitement ---");
+        LOGGER.info("--- Fin du traitement ---");
         return result.toString().trim();
     }
 

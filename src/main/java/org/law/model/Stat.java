@@ -8,19 +8,19 @@ import java.util.Map;
 @Data
 public class Stat {
 
-    private static Stat instance;
-
     private final Map<String, Integer> articleCounts;
 
     private Stat() {
         articleCounts = new HashMap<>();
     }
 
+    // Pattern initialization-on-demand holder - thread-safe
+    private static class StatHolder {
+        private static final Stat INSTANCE = new Stat();
+    }
+
     public static Stat getInstance() {
-        if (instance == null) {
-            instance = new Stat();
-        }
-        return instance;
+        return StatHolder.INSTANCE;
     }
 
 }

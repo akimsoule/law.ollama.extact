@@ -1,5 +1,8 @@
 package org.law.service.parse;
 
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.law.service.process.LangToolService;
 import org.law.utils.BoolString;
 import org.law.utils.TemplateReader;
@@ -11,6 +14,9 @@ import java.util.List;
 
 public class BodyParser implements BoolString, TransString, TemplateReader {
 
+    private static final Logger LOGGER = LoggerFactory.getLogger(BodyParser.class);
+
+
     /**
      * Nettoie et corrige le corps du texte.
      * Le body est supposé déjà synchronisé par preProcessOcrLines.
@@ -20,7 +26,7 @@ public class BodyParser implements BoolString, TransString, TemplateReader {
             return "";
 
         long startTime = System.currentTimeMillis();
-        System.out.println("[STEP] Début du nettoyage et correction grammaticale...");
+        LOGGER.info("[STEP] Début du nettoyage et correction grammaticale...");
 
         // 1. Extraction simple (le gros du travail de numérotation est déjà fait en
         // amont)
@@ -37,13 +43,16 @@ public class BodyParser implements BoolString, TransString, TemplateReader {
             articleText = LangToolService.getInstance().getCorrectedText(articleText);
             long endCorr = System.currentTimeMillis();
 
-            System.out.println(
+            LOGGER.info(
                     "Article " + (i + 1) + "/" + articles.size() + " corrigé en " + (endCorr - startCorr) + " ms");
             correctedArticles.add(articleText);
         }
 
-        System.out.println("[INFO] Temps total de traitement : " + (System.currentTimeMillis() - startTime) + " ms");
+        LOGGER.info("[INFO] Temps total de traitement : " + (System.currentTimeMillis() - startTime) + " ms");
 
+        // Nettoyer le ThreadLocal après traitement
+        LangToolService.getInstance().releaseThreadLocal();
+        
         // Retourne les articles séparés par deux sauts de ligne pour votre RAG
         return String.join("\n\n", correctedArticles);
     }

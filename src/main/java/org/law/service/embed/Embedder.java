@@ -1,5 +1,8 @@
 package org.law.service.embed;
 
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import dev.langchain4j.model.embedding.EmbeddingModel;
 import dev.langchain4j.model.embedding.onnx.allminilml6v2q.AllMiniLmL6V2QuantizedEmbeddingModel;
 
@@ -13,6 +16,9 @@ import java.util.List;
  * Dimension: 384
  */
 public class Embedder {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger(Embedder.class);
+
 
     private final EmbeddingModel embeddingModel;
     private static final int MAX_CHUNK_SIZE = 512; // all-MiniLM-L6-v2 max sequence length
@@ -32,7 +38,7 @@ public class Embedder {
     public double[] embed(String text) {
         // Si le texte est trop long, le diviser en chunks
         if (text.length() > MAX_CHUNK_SIZE) {
-            System.out.println("Texte trop long (" + text.length() + " caractères). Découpage en chunks...");
+            LOGGER.info("Texte trop long (" + text.length() + " caractères). Découpage en chunks...");
             List<String> chunks = splitIntoChunks(text, MAX_CHUNK_SIZE);
             return averageEmbeddings(chunks);
         }
@@ -78,7 +84,7 @@ public class Embedder {
             chunks.add(chunk.toString().trim());
         }
 
-        System.out.println("Texte divisé en " + chunks.size() + " chunks");
+        LOGGER.info("Texte divisé en " + chunks.size() + " chunks");
         return chunks;
     }
 
@@ -87,7 +93,7 @@ public class Embedder {
      */
     private double[] averageEmbeddings(List<String> chunks) {
         if (chunks.isEmpty()) {
-            throw new RuntimeException("Aucun chunk à vectoriser");
+            throw new IllegalStateException("Aucun chunk à vectoriser");
         }
 
         List<double[]> embeddings = new ArrayList<>();
@@ -108,7 +114,7 @@ public class Embedder {
             averageEmbedding[i] /= embeddings.size();
         }
 
-        System.out.println("Embeddings de " + embeddings.size() + " chunks moyennés");
+        LOGGER.info("Embeddings de " + embeddings.size() + " chunks moyennés");
         return averageEmbedding;
     }
 }

@@ -1,16 +1,30 @@
 package org.law.service.parse;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.law.model.LawSection;
 import org.law.model.Signataire;
-import org.law.utils.*;
+import org.law.utils.BoolString;
+import org.law.utils.ExtractString;
+import org.law.utils.TemplateReader;
+import org.law.utils.TransString;
+import org.law.utils.UtilsString;
 
 import java.io.IOException;
 import java.text.Normalizer;
-import java.util.*;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
 
 import static org.law.service.parse.Constant.START_FAIT;
 
 public class FooterParser implements BoolString, ExtractString, TransString, TemplateReader, UtilsString {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger(FooterParser.class);
 
     private final Map<String, Signataire> signatoriesMapping = new LinkedHashMap<>();
 
@@ -30,7 +44,7 @@ public class FooterParser implements BoolString, ExtractString, TransString, Tem
                 }
             }
         } catch (IOException e) {
-            System.err.println("[ERREUR] Impossible de charger le fichier signatories.csv : " + e.getMessage());
+            LOGGER.error("[ERREUR] Impossible de charger le fichier signatories.csv : " + e.getMessage());
         }
     }
 
@@ -175,13 +189,13 @@ public class FooterParser implements BoolString, ExtractString, TransString, Tem
                 "\n" +
                 "AMPLIATIONS";
 
-        System.out.println("--- Résultat de l'extraction ---");
+        LOGGER.info("--- Résultat de l'extraction ---");
         Set<Signataire> signataires = footerTrans.extractSignataires(footerInput);
 
         for (Signataire s : signataires) {
-            System.out.println("Nom: " + s.getName());
-            System.out.println("Rôle(s): " + s.getRole());
-            System.out.println("-".repeat(100));
+            LOGGER.info("Nom: " + s.getName());
+            LOGGER.info("Rôle(s): " + s.getRole());
+            LOGGER.info("-".repeat(100));
         }
     }
 }

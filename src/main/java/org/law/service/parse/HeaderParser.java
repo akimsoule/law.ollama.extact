@@ -1,5 +1,7 @@
 package org.law.service.parse;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.law.model.LawSection;
 import org.law.service.process.LangToolService;
 import org.law.utils.BoolString;
@@ -7,9 +9,12 @@ import org.law.utils.ExtractString;
 import org.law.utils.TemplateReader;
 import org.law.utils.TransString;
 
-import static org.law.service.parse.Constant.*;
+import static org.law.service.parse.Constant.ASSEMBLEE_NATIONALE;
+import static org.law.service.parse.Constant.START_OBJECT_LIST;
 
 public class HeaderParser implements BoolString, ExtractString, TransString, TemplateReader {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger(HeaderParser.class);
 
     public String cleanUpHeader(String header) throws Exception {
         if (header == null)
@@ -157,18 +162,18 @@ public class HeaderParser implements BoolString, ExtractString, TransString, Tem
         String lawObjet = headerTrans.extractLawObject(cleanupHeader);
         String lawDate = headerTrans.extractLawDate(LawSection.builder().header(input).build());
 
-        System.out.println("-".repeat(100));
-        System.out.println("Cleaned Up Header:");
-        System.out.println(cleanupHeader);
-        System.out.println("-".repeat(100));
-        System.out.println("-".repeat(100));
-        System.out.println("Law Number:");
-        System.out.println(lawNumber);
-        System.out.println("-".repeat(100));
-        System.out.println("-".repeat(100));
-        System.out.println("Law Object: \n" + lawObjet);
-        System.out.println("Law Date: \n" + lawDate);
-        System.out.println("-".repeat(100));
+        LOGGER.info("-".repeat(100));
+        LOGGER.info("Cleaned Up Header:");
+        LOGGER.info(cleanupHeader);
+        LOGGER.info("-".repeat(100));
+        LOGGER.info("-".repeat(100));
+        LOGGER.info("Law Number:");
+        LOGGER.info(lawNumber);
+        LOGGER.info("-".repeat(100));
+        LOGGER.info("-".repeat(100));
+        LOGGER.info("Law Object: \n" + lawObjet);
+        LOGGER.info("Law Date: \n" + lawDate);
+        LOGGER.info("-".repeat(100));
 
     }
 
