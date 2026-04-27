@@ -4,6 +4,8 @@ target/
 !**/src/test/**/target/
 .kotlin
 
+**/java_upgrade/**
+
 ### IntelliJ IDEA ###
 .idea/modules.xml
 .idea/jarRepositories.xml
@@ -43,6 +45,7 @@ loi/
 ocr/
 vector/
 node/
+script_output/
 errors.*
 output.*
 *debug.txt

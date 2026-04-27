@@ -3,13 +3,66 @@ package org.law.service.process;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.text.Normalizer;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
+import java.util.stream.Stream;
 
 /**
  * Service de contrôle qualité pour valider le JSON extrait.
  */
 public class QAService {
+
+    private static final Path TESSDATA_PATH = Paths.get("src/main/resources/tessdata");
+    private final Set<String> dictionary;
+
+    public QAService() {
+        this.dictionary = loadTesseractDictionary();
+        System.out.println("📚 QAService: Dictionnaire chargé (" + dictionary.size() + " mots uniques).");
+    }
+
+    private Set<String> loadTesseractDictionary() {
+        Set<String> words = new HashSet<>();
+        if (!Files.exists(TESSDATA_PATH)) {
+            System.err.println("⚠️ Dossier tessdata introuvable : " + TESSDATA_PATH.toAbsolutePath());
+            return words;
+        }
+
+        try (Stream<Path> paths = Files.list(TESSDATA_PATH)) {
+            paths.filter(Files::isRegularFile).forEach(path -> {
+                try {
+                    List<String> lines = Files.readAllLines(path);
+                    for (String line : lines) {
+                        String[] parts = line.split("\\s+");
+                        for (String w : parts) {
+                            String clean = normalize(w);
+                            if (clean.length() > 2) {
+                                words.add(clean);
+                            }
+                        }
+                    }
+                } catch (IOException e) {
+                    System.err.println("Erreur lecture tessdata " + path + " : " + e.getMessage());
+                }
+            });
+        } catch (IOException e) {
+            System.err.println("❌ Erreur accès tessdata : " + e.getMessage());
+        }
+        return words;
+    }
+
+    private String normalize(String word) {
+        return Normalizer.normalize(word, Normalizer.Form.NFD)
+                .replaceAll("\\p{M}", "")
+                .toLowerCase()
+                .replaceAll("[^a-z]", "");
+    }
 
     /**
      * Valide le JSON selon les critères QA.
@@ -19,97 +72,41 @@ public class QAService {
      */
     public List<String> validateJson(JSONObject jsonObject) {
         List<String> errors = new ArrayList<>();
-        int totalChecks = 0;
-        int successfulChecks = 0;
 
-        // Vérifier les signataires
-        totalChecks++;
-        if (!jsonObject.has("metadata") || !jsonObject.getJSONObject("metadata").has("signatories")) {
-            errors.add("Metadata ou signatories manquant");
-        } else {
-            successfulChecks++;
-            JSONArray signatories = jsonObject.getJSONObject("metadata").getJSONArray("signatories");
-            if (signatories.isEmpty()) {
-                errors.add("Au moins un signataire requis");
-            } else {
-                for (int i = 0; i < signatories.length(); i++) {
-                    totalChecks++;
-                    JSONObject sig = signatories.getJSONObject(i);
-                    boolean sigValid = true;
-                    if (!sig.has("role") || sig.getString("role").trim().isEmpty()) {
-                        errors.add("Signataire " + (i + 1) + " : rôle manquant ou vide");
-                        sigValid = false;
-                    }
-                    if (!sig.has("name") || sig.getString("name").trim().isEmpty()) {
-                        errors.add("Signataire " + (i + 1) + " : nom manquant ou vide");
-                        sigValid = false;
-                    }
-                    if (sigValid) {
-                        successfulChecks++;
-                    }
-                }
-            }
+        if (!jsonObject.has("metadata") || !jsonObject.getJSONObject("metadata").has("lawNumber")) {
+            errors.add("Structure: lawNumber manquant");
+        }
+        if (!jsonObject.has("articles") || jsonObject.getJSONArray("articles").length() < 2) {
+            errors.add("Structure: < 2 articles");
         }
 
-        // Vérifier les champs de metadata
-        totalChecks++;
-        if (jsonObject.has("metadata")) {
-            JSONObject metadata = jsonObject.getJSONObject("metadata");
-            String[] requiredFields = { "lawNumber", "lawObject", "lawDate" };
-            boolean metadataValid = true;
-            for (String field : requiredFields) {
-                if (!metadata.has(field) || metadata.getString(field).trim().isEmpty()) {
-                    errors.add("Champ metadata '" + field + "' manquant ou vide");
-                    metadataValid = false;
-                }
-            }
-            if (metadataValid) {
-                successfulChecks++;
-            }
-        } else {
-            errors.add("Metadata manquant");
-        }
-
-        // Vérifier les articles
-        totalChecks++;
-        if (!jsonObject.has("articles")) {
-            errors.add("Articles manquant");
-        } else {
+        if (jsonObject.has("articles")) {
             JSONArray articles = jsonObject.getJSONArray("articles");
-            boolean articlesValid = true;
-            if (articles.length() < 2) {
-                errors.add("Au moins deux articles requis");
-                articlesValid = false;
-            }
-            if (!articles.isEmpty()) {
-                // Vérifier le dernier article
-                JSONObject lastArticle = articles.getJSONObject(articles.length() - 1);
-                if (lastArticle.has("content")) {
-                    String content = lastArticle.getString("content");
-                    int wordCount = content.split("\\s+").length;
-                    if (wordCount > 25) {
-                        errors.add("Le dernier article a " + wordCount + " mots (maximum 25 autorisé)");
-                        articlesValid = false;
-                    }
-                } else {
-                    errors.add("Contenu du dernier article manquant");
-                    articlesValid = false;
+            for (int i = 0; i < articles.length(); i++) {
+                String content = articles.getJSONObject(i).optString("content", "");
+                int unknownWords = countUnknownWords(content);
+                if (unknownWords > 0) {
+                    errors.add(String.format("⚠️ LEXIQUE: %d mots inconnus dans l'article %d", unknownWords, i + 1));
                 }
             }
-            if (articlesValid) {
-                successfulChecks++;
-            }
-        }
-
-        // Ajouter le taux de réussite dans la variable errors uniquement s'il y a des
-        // erreurs
-        if (!errors.isEmpty()) {
-            double successRate = totalChecks > 0 ? (double) successfulChecks / totalChecks * 100 : 0;
-            errors.add(String.format("QA Validation - Taux de réussite: %.1f%% (%d/%d)", successRate, successfulChecks,
-                    totalChecks));
-            errors.add("Succès : " + successfulChecks + " / " + totalChecks);
         }
 
         return errors;
+    }
+
+    private int countUnknownWords(String text) {
+        if (dictionary.isEmpty() || text == null || text.isBlank()) {
+            return 0;
+        }
+
+        int count = 0;
+        String[] words = text.split("[^a-zA-Zàâéèêëîïôûùçœ'-]+");
+        for (String w : words) {
+            String clean = normalize(w);
+            if (clean.length() >= 4 && !dictionary.contains(clean)) {
+                count++;
+            }
+        }
+        return count;
     }
 }

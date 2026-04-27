@@ -2,7 +2,6 @@ package org.law.service.embed;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
-import org.law.service.embed.Embedder;
 
 import java.io.IOException;
 import java.nio.file.Files;
